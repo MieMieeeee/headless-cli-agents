@@ -1,8 +1,8 @@
 ---
 name: headless-cli-agents
 display-name: ZCode / Grok / Codex / Claude Code 命令行（headless）使用指南
-description: 本机可调用的 CLI agents 一览，以及如何以无界面（headless）方式调用 ZCode / Grok / Codex / Claude Code，供脚本或其他 agent 做代码审查等任务。先列有哪些 agent，再给抄命令模板；后半是各 CLI 的配置、参数、JSON 格式与排错。
-version: 1.5.0
+description: 如何发现本机已安装的 agent CLI，并以无界面（headless）方式调用 ZCode / Grok / Codex / Claude Code，供脚本或其他 agent 做代码审查等任务。先按探活协议确认可用 CLI，再给抄命令模板；后半是各 CLI 的配置、参数、JSON 格式与排错。
+version: 2.0.0
 author: MieMieeeee
 tags: zcode, grok, codex, claude, CLI, headless, multi-agent, 代码审查, agent协作
 category: 工具使用
@@ -12,49 +12,58 @@ category: 工具使用
 
 给**其他 agent / 脚本**看的调用手册：先看 §1 有哪些 CLI，再抄 §2 的命令。ZCode / Grok / Codex / Claude Code 的细参数分别在 §3–§13 / §14 / §15 / **§16**。
 
-- 适用版本：**zcode 0.16.5**（Windows，ZCode 桌面版自带 CLI）；**Grok CLI 1.0.5**（Windows，xAI 官方 CLI）；**Codex CLI 0.153.0-alpha.5**（ChatGPT Codex 桌面版同步到用户目录的 CLI，默认模型是 cc-switch 的 MiniMax-M3，详见 §1 / §15）；**Claude Code 2.1.204**（Windows，官方 native installer，路径 `%USERPROFILE%\.local\bin\claude.exe`；本机默认模型经路由显示为 `glm-5.2`，详见 §1 / §16）
+- 本文所有 [已实测] 结论验证于 2026-09-03：zcode 0.16.5 / Grok CLI 1.0.5 / Codex CLI 0.153.0-alpha.5 / Claude Code 2.1.204（Windows 11, build 26200）。本技能**不设版本门槛**；版本不同时结论可能漂移，按 §1 的发现方法与各章自检清单重新验证。各章自检清单里的「期望输出」同样是当日快照，随本机与版本而变，不是合格标准。
 - 验证环境：Windows 11 (win32 10.0.26200 x64)，Node v24.5.0，Git Bash / PowerShell
 - 标注图例：**[已实测]** = 技能方在本机验证通过；**[外部实测]** = 验证 agent 实战数据；**[仅帮助文档]** = 来自 `--help` 输出、未实测；**[实测不可用]** = 当前版本拒绝，勿用
-- v1.1.0 变更：合入外部实测反馈——大文档 review 推荐模式（当时 §3.1）、耗时预算、程序化调用的进度/超时/maxBuffer 排错。
-- v1.2.0 变更：新增「复杂任务写进文件、prompt 保持短指令」为推荐实践（两跳模式）。
-- v1.3.0 变更：新增 Grok CLI headless 调用；Codex 当时按 Store ACL 锁死记录。
-- **v1.4.0 变更**：文首改为「先列本机 agents，再给调用模板」（§1–§2）；ZCode / Grok 专章编号顺延为 §3–§13 / §14；Codex §15 改为桌面版用户目录 CLI + MiniMax-M3 **已实测**。
-- **v1.4.1 变更**（2026-08-25 全量复测三家）：ZCode 0.16.3→**0.16.5**（§6.2 拒绝参数清单在新版复验仍拒绝）；Codex 升到 **0.149.0-alpha.4.3**、哈希目录再变，§2.3 / §15 示例改为从 `CODEX_CLI_PATH` 动态取路径；`exec resume` 由「仅帮助文档」升级为「已实测」，其 flag 子集限制与位置参数坑写入 §15.3；新增实测坑：**Windows PowerShell 5.1 管道喂中文 stdin 会变 `???`**，须先设 `$OutputEncoding`（§2.3 / §15.2）；三家最小调用 / JSON / 续接 / 错误路径全部复验通过。
-- **v1.4.2 变更**（2026-09-03 合入修复类任务实战反馈）：Codex 随桌面升级到 **0.153.0-alpha.5**（哈希 `994e8469124a0d31`，动态取法复验有效，§15.3 参数清单实战未见新变化）；新增两个坑——**① Codex 的 shell 工具读 UTF-8 无 BOM 中文文件会按 GBK 解码成乱码**（与 PS 5.1 stdin 坑是两个失败面，两跳任务文件建议英文或带 BOM，§15.2）；**② 沙箱里自建 venv 验证 ≠ 调用方环境**（会误诊依赖缺失类失败，pytest 还需 `--basetemp`，§2.5）；新增 **§2.5 Codex 修复类任务（workspace-write）模板**（编码防护 / 指定验证解释器 / 调用方复跑）。
-- **v1.4.3 变更**（2026-09-03 公开前脱敏）：移除个人信息、硬编码本地用户路径参数化为环境变量形式、frontmatter `name` 改为 `headless-cli-agents`、`tags` 加 `multi-agent`、`version` 升 1.4.3。
-- **v1.5.0 变更**（2026-09-03 增 Claude Code）：新增第四家 CLI **Claude Code 2.1.204**（本机默认模型经路由显示为 `glm-5.2`，详见 §16）；新增 **§1.1 能力探测与「不引导安装」策略**（调用方先 probe 后只使用本机现有 CLI，本技能不负责安装指导）；新增 **§2.6 Claude Code（只读 review）模板**；§2.4 三家对照表扩为四列；新增 **§16 Claude Code 专章**（入口 / 鉴权 / headless / 参数 / JSON / 续接 / 退出码 / 与其它三家差异 / spawnSync / 自检清单）；frontmatter `tags` 加 `claude`、`version` 升 1.5.0。
 
-## 1. 本机可用的 CLI agents
+## 1. 发现已安装的 CLI agents
 
-四个都能 headless 单次跑完退出。**都不在可靠 PATH 里**，调用必须用表里的全路径。[已实测]
+本技能覆盖的四家均支持 headless 单次跑完退出；**是否已安装以逐家探活为准**。短名不全在可靠 PATH 里，调用建议用全路径或 spawnSync 的 `cwd` 选项。[已实测]  本技能**不引导安装**——安装路径随厂商 / 平台 / 桌面版差异极大，已超出 headless 调用手册的职责；调用方按 §1 初始化协议 probe 后只使用实际存在的。
 
-| agent | 二进制 | 版本 | 默认模型 | headless 入口 | 取最终回答 |
-|---|---|---|---|---|---|
-| **ZCode** | `node %LOCALAPPDATA%\Programs\ZCode\resources\glm\zcode.cjs` | 0.16.5 | `bigmodel/glm-5.3` | `--prompt` / `-p` | `--json` → 字段 `response`；续接 `--resume sess_xxx` |
-| **Grok** | `%USERPROFILE%\.grok\bin\grok.exe` | 1.0.5 | `grok-4.6-build` | `-p` / `--single` | `--output-format json` → 字段 `text`。stderr 有 WARN，**禁止 `2>&1`**；续接 `-r sessionId` |
-| **Codex** | `%LOCALAPPDATA%\OpenAI\Codex\bin\<哈希>\codex.exe`（当前 `994e8469124a0d31`，随桌面升级变，动态取法见 §2.3） | 0.153.0-alpha.5 | **MiniMax-M3**（cc-switch custom，`https://api.minimaxi.com/v1`） | `exec`；长 prompt 用 stdin `-` | `--json` 是 **JSONL**；更稳加 `-o last.txt` 读最终回答。续接 `exec resume <thread_id>` |
-| **Claude Code** | `%USERPROFILE%\.local\bin\claude.exe` | 2.1.204 | **glm-5.2**（路由后 `modelUsage.glm-5.2`，机制不深究；本机非 Anthropic 官方模型） | `-p` / `--print` | `--output-format json` → 字段 `result`（单个 JSON 对象）。续接 `--resume <session_id>`（同目录实测可用，跨目录找不到，§16.7） |
+### 通用发现手段
 
-调用方注意：
+短名可靠度按家区分：`zcode` / `grok` 不在 PATH；`codex` 的 PATH 指向过期哈希目录与旧 Store 包；`claude` 的 native installer 通常会把自己加进 PATH（`where.exe claude` 常可命中，脚本里仍建议全路径 / `Test-Path` 更稳）。逐家探活用：
 
-- 打 `codex` / `zcode` / `grok` 当短命令都不可靠。Codex 的 PATH 指向过期哈希目录和旧 Store 包，`where.exe codex` 找不到。
-- Codex 桌面是 ChatGPT Store 包 `OpenAI.Codex 26.818.8289.0`，但 **CLI 默认不是 GPT**，是 `~/.codex/config.toml` 里 cc-switch 配的 MiniMax-M3。[已实测] 默认 `exec` ~8s 回 `OK`；显式 `-m MiniMax-M3` ~4.8s 回 `MiniMax-M3-CLI-OK`。
-- 不要对 Codex 加 `--ignore-user-config` 去打 `api.openai.com`：本机 `auth.json` 是 ChatGPT plan 风格的 `sk-cp-...` key，会 **401 invalid_api_key**（exit 1）。文档不写完整 key。
-- 桌面升级后 Codex 的哈希子目录会变（v1.4.0 时的 `f79cfd43cf28a53a`、v1.4.1 时的 `8fffe69425752027` 目录均已随升级失效）。发现当前二进制：在 `~\.codex\config.toml` 搜 `CODEX_CLI_PATH`，可直接抄 §2.3 的动态取路径一行。不要用 `...\OpenAI\Codex\bin\codex.exe` 根上那份（本机是旧的 0.130）。
-- WindowsApps 里的 `codex.exe` 仍是 ACL 锁死，Access is denied，不要 spawn 那条路径。
-
-### 1.1 能力探测（capability probing）[策略]
-
-调用方在 spawn 之前必须先 probe 本机实际有哪些 CLI 可用，**只使用存在的**；本技能**不引导安装**——安装步骤随厂商 / 平台 / 桌面版差异极大，已超出 headless 调用手册的职责。判断「哪些 CLI 在当前机器上」按下列子句抄一遍即可：
-
-| CLI | 探测命令 | 命中条件 |
+| CLI | 探活命令 | 典型安装位置 |
 |---|---|---|
-| **ZCode** | `Test-Path "$env:LOCALAPPDATA\Programs\ZCode\resources\glm\zcode.cjs"` | `True` |
-| **Grok** | `Test-Path "$env:USERPROFILE\.grok\bin\grok.exe"` | `True` |
-| **Codex** | `(Select-String -Path "$env:USERPROFILE\.codex\config.toml" -Pattern 'CODEX_CLI_PATH').Line.Split("'")[1]` 存在且该 `.exe` `Test-Path` 为 `True` | 当前哈希目录存在（hash 随桌面升级变；失效时降级到 §15.1「发现当前二进制」指引） |
-| **Claude Code** | `where.exe claude`（或 `Test-Path "$env:USERPROFILE\.local\bin\claude.exe"`） | 命中路径且 `& $path --version` exit 0 |
+| **ZCode** | `Test-Path "$env:LOCALAPPDATA\Programs\ZCode\resources\glm\zcode.cjs"` | 同左（ZCode 桌面版自带） |
+| **Grok** | `Test-Path "$env:USERPROFILE\.grok\bin\grok.exe"` | 同左（xAI 官方 native installer） |
+| **Codex** | 先 `Test-Path "$env:USERPROFILE\.codex\config.toml"`（不存在即未安装，勿直接 Select-String）；存在再 `Select-String -Path "$env:USERPROFILE\.codex\config.toml" -Pattern 'CODEX_CLI_PATH'` 取行、按 §2.3 / §15.1 拆出 `.exe` 全路径后 `Test-Path` | `%LOCALAPPDATA%\OpenAI\Codex\bin\<哈希>\codex.exe`（哈希随桌面升级变，**必须**从 `~/.codex/config.toml` 动态取） |
+| **Claude Code** | `where.exe claude`（或 `Test-Path "$env:USERPROFILE\.local\bin\claude.exe"`） | `%USERPROFILE%\.local\bin\claude.exe`（Anthropic 官方 native installer） |
 
-调用方在向用户报告「打算使用哪个 CLI」之前先跑这段 probe；存在多个时按 §2.4 选最适合当前任务的那家。**严禁**因为某家不存在而引导用户安装——改用实际可用的；都不存在就如实告知用户需要先准备好环境（让用户自己决定去哪里装、装哪个版本）。
+### 本技能深度文档化的四家
+
+| CLI | 二进制 | headless 入口 | JSON 字段 | 续接方式 |
+|---|---|---|---|---|
+| **ZCode** | 见 §1 通用发现手段 / §3 | `--prompt` / `-p` | `--json` → 字段 `response` | `--resume sess_xxx` |
+| **Grok** | 见 §1 通用发现手段 / §14.1 | `-p` / `--single` | `--output-format json` → 字段 `text`（stderr 有 WARN，**禁止 `2>&1`**） | `-r <sessionId>` |
+| **Codex** | 见 §1 通用发现手段 / §15.1 | `exec`；长 prompt 用 stdin `-` | `--json` 是 **JSONL**；更稳加 `-o last.txt` 读最终回答 | `exec resume <thread_id>` |
+| **Claude Code** | 见 §1 通用发现手段 / §16.1 | `-p` / `--print` | `--output-format json` → 字段 `result`（单个 JSON 对象） | `--resume <session_id>`（同目录实测可用，跨目录找不到，§16.7） |
+
+### 默认模型怎么查
+
+默认值随桌面 / 账号 / 路由配置变化，请直接读源而不是记硬编码：
+
+| CLI | 怎么查 |
+|---|---|
+| **ZCode** | 读 `~/.zcode/cli/config.json` → `model.main`（格式 `<provider>/<model-id>`，例 `bigmodel/glm-5.3`） |
+| **Grok** | 免费：docs / `--help` 口径；精确生效模型需一次最小调用，看 JSON `modelUsage` 块 key（付费，如 `grok-4.6-build`；`usage` 字段无 model 信息） |
+| **Codex** | 读 `~/.codex/config.toml` → `model =` 行（路由 / cc-switch 会替换默认值，不一定等于官方 GPT） |
+| **Claude Code** | 最便宜的确定方式是发一次最小调用，读 JSON `modelUsage` 块 key（实测约 $0.14）；或查 `~/.claude/settings.json`（路由机制下不保证等于实际生效模型） |
+
+### 初始化协议（首次使用本技能时）
+
+**Layer 1 — 免费、必跑**（按 §1 通用发现手段 逐家探活 + 按 §1 默认模型怎么查 读配置源），把结果汇报给上游 / 用户，如「本机可用 ZCode / Grok，Codex 当前未安装」。只做免费探测：`Test-Path` / 读 `config.json` / `config.toml` / `settings.json` / `--help`——**不发任何真实模型调用**；Grok / Claude 的精确生效模型在免费层拿不到，留给 Layer 2。
+
+**Layer 2 — 付费、按需**（首次在一台新机器采用本技能，或 Layer 1 结果疑似错时跑）：对探活命中的每家发**一次**最小调用——抄对应自检清单的**单条**命令（§12 第 3 项 / §14.10 第 2 项 / §15.7 第 3 项 / §16.10 第 3 项），不要整节照跑（整节含多轮真实调用）。**Claude Code 的最小调用是四家里最贵的，验证时约 $0.14**；其余几乎免费。
+
+### 调用方注意
+
+- 打 `codex` / `zcode` / `grok` 当短命令都不可靠（Codex PATH 指向过期哈希目录与旧 Store 包，zcode / grok 压根不在 PATH）；`claude` 通常在 PATH（`where.exe claude` 常命中），但脚本里仍建议用全路径。
+- 桌面升级后 Codex 的哈希子目录会变（v1.4.0 时的 `f79cfd43cf28a53a`、v1.4.1 时的 `8fffe69425752027` 目录均已随升级失效——这条**作为哈希机制漂移证据**保留）。发现当前二进制：在 `~\.codex\config.toml` 搜 `CODEX_CLI_PATH`，按 §2.3 / §15.1 的动态取路径一行；不要用 `...\OpenAI\Codex\bin\codex.exe` 根上那份（已知的旧副本 0.130）。
+- Codex 的 `approval_policy` 由 `~/.codex/config.toml` 决定（验证时本机为 `never`）；review 类任务**必须**显式 `--sandbox read-only`，与 `approval_policy` 无关。不要给 `exec` 传 `--ask-for-approval`（clap 直接 exit 2）。
+- 不要对 Codex 加 `--ignore-user-config` 去打 `api.openai.com`：若 `auth.json` 持 `sk-cp-...`（ChatGPT plan 风格）key 会 401（exit 1）。实际 auth 状态用 `codex login status` 查。
+- WindowsApps 里的 `codex.exe` 仍是 ACL 锁死（Access is denied），不要 spawn 那条路径。
 
 ## 2. 给其他 agent 的推荐调用
 
@@ -92,9 +101,9 @@ node "$env:LOCALAPPDATA\Programs\ZCode\resources\glm\zcode.cjs" `
 # stdout 是单个 JSON：.text = 最终回答，.sessionId 给 -r。不要 2>&1
 ```
 
-### 2.3 Codex / MiniMax-M3（只读 review）
+### 2.3 Codex（只读 review）
 
-本机 config 默认 `sandbox_mode = danger-full-access`、`approval_policy = never`，review **必须**显式 `--sandbox read-only`。PowerShell 不要把带空格的 prompt 当 `Start-Process -ArgumentList` 元素（会拆词）；走 stdin `-`。
+验证时本机 `~/.codex/config.toml` 默认 `sandbox_mode = "danger-full-access"`、`approval_policy = "never"`（详见 §15.1）；review **必须**显式 `--sandbox read-only`，与 `approval_policy` 无关——只看你的 `~/.codex/config.toml` 实际值。PowerShell 不要把带空格的 prompt 当 `Start-Process -ArgumentList` 元素（会拆词）；走 stdin `-`。
 
 ```powershell
 # 哈希目录随桌面升级变化，从 config.toml 动态取当前二进制（已实测一行可用）
@@ -103,7 +112,7 @@ $CX = (Select-String -Path "$env:USERPROFILE\.codex\config.toml" -Pattern 'CODEX
 $OutputEncoding = [System.Text.Encoding]::UTF8
 "阅读 ./review_task.md 并严格执行其中的任务" |
   & $CX exec --skip-git-repo-check --color never --json --sandbox read-only `
-    -m MiniMax-M3 -C "E:/你的项目" -o "$PWD\codex_last.txt" -
+    -C "E:/你的项目" -o "$PWD\codex_last.txt" -
 # 最终回答读 codex_last.txt
 # ⚠ review_task.md 若含中文：存成 UTF-8 带 BOM，或干脆写英文——Codex 的 shell 工具读 UTF-8 无 BOM 中文文件会按 GBK 解码成乱码（§15.2 读盘层坑）
 # JSONL 里 {"type":"thread.started","thread_id":"..."} 给续接（- 是 PROMPT 位，结尾不要再多挂一个 -）：
@@ -113,14 +122,14 @@ $OutputEncoding = [System.Text.Encoding]::UTF8
 
 ### 2.4 四家最小对照
 
-| 项 | ZCode | Grok | Codex 0.153 | Claude Code 2.1.204 |
+| 项 | ZCode | Grok | Codex | Claude Code |
 |---|---|---|---|
 | 工作目录 | `--cwd` | `--cwd` | `-C` / `--cd` | spawnSync 的 `cwd` 选项（无 `--cwd` flag） |
 | JSON | 单个对象 `response` | 单个对象 `text`（stderr 有 WARN） | **JSONL** + `-o` 文件 | 单个对象 `result` |
 | 只读 | `--mode plan` + `--disallowed-tools "Edit Write Bash"` | `--permission-mode plan` + `--disallowed-tools "Edit,Write,..."`（逗号） | `--sandbox read-only`（无 disallowed-tools） | `--permission-mode plan` + `--disallowed-tools "Edit,Write,Bash"` |
 | 续接 | `--resume sess_xxx` | `-r <sessionId>` | `exec resume <thread_id>` | `--resume <session_id>`（同目录实测可用，§16.7） |
-| 默认模型 | glm-5.3 | grok-4.6-build | MiniMax-M3 | glm-5.2（本机路由后） |
-| 无人值守批准 | headless 默认 yolo | **必须** `--always-approve` | 本机 config 已 `never`；不要给 `exec` 传 `--ask-for-approval`（clap 直接 exit 2） | headless `-p` 默认自动批准；只读场景显式 `--permission-mode plan` |
+| 默认模型 | 见 §1 默认模型怎么查 | 见 §1 默认模型怎么查 | 见 §1 默认模型怎么查 | 见 §1 默认模型怎么查 |
+| 无人值守批准 | headless 默认 yolo | **必须** `--always-approve` | 看 `~/.codex/config.toml` 的 `approval_policy`（验证时本机为 `never`）；不要给 `exec` 传 `--ask-for-approval`（clap 直接 exit 2） | headless `-p` 默认自动批准；只读场景显式 `--permission-mode plan` |
 
 ### 2.5 Codex 修复类任务（workspace-write）[外部实战验证，2026-09-03]
 
@@ -131,7 +140,7 @@ $CX = (Select-String -Path "$env:USERPROFILE\.codex\config.toml" -Pattern 'CODEX
 $OutputEncoding = [System.Text.Encoding]::UTF8   # PS 5.1 必加（§15.2）；任务文件建议直接写英文
 "Read ./repair_task.md and execute it strictly." |
   & $CX exec --skip-git-repo-check --color never --json --sandbox workspace-write `
-    -m MiniMax-M3 -C "E:/目标仓库" -o "$PWD\codex_last.txt" -
+    -C "E:/目标仓库" -o "$PWD\codex_last.txt" -
 ```
 
 任务文件模板——三条防护约束都是实战踩出来的，别省（模板本身用英文书写，规避 §15.2 的读盘乱码坑）：
@@ -238,7 +247,7 @@ alias zcode='node "$LOCALAPPDATA/Programs/ZCode/resources/glm/zcode.cjs"'
 Error: Model config is missing. Create %USERPROFILE%\.zcode\cli\config.json with an explicit model provider before running ZCode.
 ```
 
-**[已实测]** 本机此文件已配好，内容模板如下（与官方 `login` 命令写入的格式逐字段一致，此格式从 zcode.cjs 0.16.3 源码中的配置写入函数核对得出）：
+用以下模板检查 / 创建该文件（与官方 `login` 命令写入的格式逐字段一致，此格式从 zcode.cjs 0.16.3 源码中的配置写入函数核对得出）。存在性检查见 §1 通用发现手段。
 
 ```json
 {
@@ -360,7 +369,7 @@ node "$LOCALAPPDATA/Programs/ZCode/resources/glm/zcode.cjs" \
 - `--attach` 不是这个模式的替代品（大文件超时风险见 §5.1），zcode 在 cwd 里用 Read 工具自读最稳；
 - 短 prompt 也让日志和进程列表（`ps` / 任务管理器命令列）保持可读。
 
-## 6. 参数清单（以 0.16.5 实测为准；0.16.3 的结论在 0.16.5 复验无变化）
+## 6. 参数清单（验证快照见文首；版本漂移时按 §12 自检清单复验）
 
 ### 6.1 实测可用
 
@@ -441,7 +450,7 @@ zcode --prompt "1+1等于几？只回答数字" --json
 |---|---|---|
 | `version` | 打印版本 | `0.16.5` |
 | `doctor` | 检查运行环境 | `version: 0.16.5 / process: zcode-cli / node: v24.5.0 / platform: win32/x64 ...` |
-| `skills list` | 列出本地 skills（本机 85 个，含路径） | `- agent-browser (user/agents) ...` |
+| `skills list` | 列出本地 skills（验证时本机 85 个，数量随机器变，含路径） | `- agent-browser (user/agents) ...` |
 | `plugins list` | 列出插件及启用状态 | `- browser-use@zcode-plugins-official [enabled] ...` |
 | `commands list` | 列出自定义斜杠命令 | `No custom commands found.` |
 | `login` | OAuth 登录（**只支持网页流程**，见 §4） | 实测：传 key 参数被忽略，走 OAuth |
@@ -635,11 +644,10 @@ if (result.status === 0) {
 
 ## 14. Grok CLI（xAI）headless 调用 [本节均已实测，2026-08-25]
 
-xAI 官方 Grok CLI（v1.0.5）的 headless 模式与 ZCode 形态接近，但有几个跟 README 不一致的细节，**踩过的标出**。
+xAI 官方 Grok CLI 的 headless 模式与 ZCode 形态接近，但有几个跟 README 不一致的细节，**踩过的标出**。当前版本见 §1 通用发现手段 / §14.10 自检。
 
 ### 14.1 它是什么 / 入口在哪
 
-- 适用版本：**Grok 1.0.5**（Windows，xAI 官方 CLI）
 - 验证环境：Windows 11 (win32 10.0.26200 x64)，`grok --version` → `grok 1.0.5 (5115b46bc9)`
 - 二进制入口（**不是** `~/.grok/grok.exe`，那个目录列表里的项在 `bin/` 子目录里）：
 
@@ -649,14 +657,14 @@ xAI 官方 Grok CLI（v1.0.5）的 headless 模式与 ZCode 形态接近，但�
 
 ⚠ **路径陷阱** [已实测]：直接在 `%USERPROFILE%\.grok\` 下 `Get-ChildItem` 会显示 `grok.exe` / `agent.exe` 两个 142MB 的"幻影"条目，但 PowerShell 是把 `bin/` 里的内容拍平渲染的，**真实路径就是 `bin\grok.exe`**。
 
-### 14.2 认证：已配好，7 天过期
+### 14.2 认证检查
 
-[已实测] 本机已 OIDC 登录，token 在 `%USERPROFILE%\.grok\auth.json`：
+探活：
 
-- 邮箱：`<登录邮箱>`
-- token 字段：`auth_mode: "oidc"`、`expires_at: "<7 天后的过期时间>"`
-- Token 7 天后过期；过期后 `grok -p` 会自动重新走浏览器登录流程，或者用 `grok login` 主动续。
-- CI / 静默环境不走 OIDC：设 `XAI_API_KEY=xai-...` 环境变量，API key 优先于浏览器凭据。
+- 是否登录：跑 `grok -p "x"` 看是否走浏览器（未登录会触发）。要稳一点看 `auth.json`：`Test-Path "$env:USERPROFILE\.grok\auth.json"`，存在且 `auth_mode: "oidc"` 即已登录；不存在就是没登录或已过期。
+- 过期判定：OIDC token 7 天后过期（已知机制，验证时本机 token 即 7 天内有效）；过期后 `grok -p` 会自动重新走浏览器登录流程，或者用 `grok login` 主动续。
+- CI / 静默环境不走 OIDC：设 `XAI_API_KEY=xai-...` 环境变量，**API key 优先于浏览器凭据**。
+- 探测成本：`grok -p "x"` 会真实发一次最小调用（验证时约 1s，token 级）；`Test-Path` 一次文件 stat 完全免费。
 
 ### 14.3 Headless 单次运行
 
@@ -805,7 +813,7 @@ Error: --effort/--reasoning-effort: unknown effort level 'xxx'; use one of: xhig
 
 | 项 | ZCode | Grok |
 |---|---|---|
-| 默认模型 | `bigmodel/glm-5.3` | `grok-4.6-build` |
+| 默认模型 | 见 §1 默认模型怎么查 | 见 §1 默认模型怎么查 |
 | JSON 字段命名 | camelCase（`inputTokens`） | snake_case（`input_tokens`） |
 | 成本字段 | 无 | `total_cost_usd` |
 | 续接会话 | `--resume sess_xxx` | `-r <sessionId>` 或 `-r` 续最近 |
@@ -883,15 +891,15 @@ $SID = [regex]::Match(($J -join "`n"), '"sessionId":"([^"]+)"').Groups[1].Value
 # → 冬瓜77号
 ```
 
-## 15. Codex CLI（ChatGPT 桌面版 / MiniMax-M3）headless 调用 [本节除注明外已实测，2026-08-25；版本/哈希于 2026-09-03 复测更新至 0.153.0-alpha.5]
+## 15. Codex CLI（ChatGPT 桌面版）headless 调用 [本节已实测 / 仅帮助文档]
 
-桌面是 Microsoft Store 的 ChatGPT Codex，CLI 已被同步到用户目录，**可以直接 spawn**。默认模型是 cc-switch 的 **MiniMax-M3**，不是 GPT。调用方先看 §1–§2；这里是参数和坑。
+桌面是 Microsoft Store 的 ChatGPT Codex，CLI 已被同步到用户目录，**可以直接 spawn**。默认模型由 `~/.codex/config.toml` 决定（查法见 §1 默认模型怎么查），**不一定是官方 GPT**——本机验证时经 cc-switch 路由为 MiniMax-M3。调用方先看 §1–§2；这里是参数和坑。
 
 ### 15.1 入口在哪
 
 | 路径 | 版本 | spawn |
 |---|---|---|
-| `%LOCALAPPDATA%\OpenAI\Codex\bin\994e8469124a0d31\codex.exe` | **0.153.0-alpha.5**（当前，2026-09-03 复测） | ✅ [已实测] `--version` / `exec` / `exec resume`（修复类实战见 §2.5） |
+| `%LOCALAPPDATA%\OpenAI\Codex\bin\<哈希>\codex.exe`（示例 `994e8469124a0d31`，随桌面升级变；**动态取法见下方代码块，勿抄示例哈希**） | 0.153.0-alpha.5（验证快照） | ✅ [已实测] `--version` / `exec` / `exec resume`（修复类实战见 §2.5） |
 | `...\OpenAI\Codex\bin\<旧哈希>\codex.exe`（如 v1.4.1 时的 `8fffe69425752027`、v1.4.0 时的 `f79cfd43cf28a53a`） | 已随桌面升级失效 | ❌ 目录不存在（旧哈希目录会在 bin\ 下残留多个，均勿依赖） |
 | `%LOCALAPPDATA%\OpenAI\Codex\bin\codex.exe` | 0.130.0-alpha.5 | 能跑，但是旧副本，不要用 |
 | `C:\Program Files\WindowsApps\OpenAI.Codex_26.818.8289.0_x64__2p2nqsd0c76g0\app\resources\codex.exe` | Store 包 26.818.8289.0 自带 | ❌ Access is denied（Store ACL） |
@@ -902,7 +910,7 @@ $SID = [regex]::Match(($J -join "`n"), '"sessionId":"([^"]+)"').Groups[1].Value
 Select-String -Path "$env:USERPROFILE\.codex\config.toml" -Pattern 'CODEX_CLI_PATH'
 ```
 
-本机 `codex login status` → `Logged in using an API key`。`~/.codex/config.toml` 关键字段：`model_provider = "custom"`、`model = "MiniMax-M3"`、`model_catalog_json = "cc-switch-model-catalog.json"`、`base_url = "https://api.minimaxi.com/v1"`。另有 `sandbox_mode = "danger-full-access"`、`approval_policy = "never"`。
+验证时（本机 2026-09-03 实测）`codex login status` → `Logged in using an API key`，`~/.codex/config.toml` 关键字段：`model_provider = "custom"`、`model = "MiniMax-M3"`、`model_catalog_json = "cc-switch-model-catalog.json"`、`base_url = "https://api.minimaxi.com/v1"`、`sandbox_mode = "danger-full-access"`、`approval_policy = "never"`。**升级后请按 §1 通用发现手段 / §15.7 自检清单重新确认**——`approval_policy = "never"` + `sandbox_mode = "danger-full-access"` 的组合意味着 review 类任务不显式 `--sandbox read-only` 就会直接动文件。
 
 ### 15.2 Headless 单次运行
 
@@ -921,7 +929,7 @@ $CX = (Select-String -Path "$env:USERPROFILE\.codex\config.toml" -Pattern 'CODEX
 # [已实测] exit 0，约 8s，last.txt = OK
 ```
 
-显式钉死模型 [已实测 ~4.8s]：
+显式钉死模型（**仅当必须固定模型时才传 `-m`**；默认不传、用 CLI 配置的默认模型，查法见 §1 默认模型怎么查）[已实测 ~4.8s]：
 
 ```powershell
 "Reply with only this exact line: MiniMax-M3-CLI-OK" |
@@ -949,7 +957,7 @@ $CX = (Select-String -Path "$env:USERPROFILE\.codex\config.toml" -Pattern 'CODEX
 | `--json` | stdout 打 JSONL 事件 | 真实运行 |
 | `-o, --output-last-message <FILE>` | 最终回答写文件 | 真实运行 |
 | `-s, --sandbox <MODE>` | `read-only` / `workspace-write` / `danger-full-access`。**`-s` 不是 session**；`workspace-write` 修复类任务的坑（venv 漂移 / pytest `--basetemp`）见 §2.5 | 真实运行 |
-| `-m, --model <MODEL>` | 覆盖模型，本机用 `MiniMax-M3` | 真实运行 |
+| `-m, --model <MODEL>` | 覆盖默认模型（值由 §1 默认模型怎么查 / §15.1 决定；当前章节唯一保留的 `-m MiniMax-M3` 例子见上文「显式钉死模型」） | 真实运行 |
 | `--ephemeral` | 不落 session 文件 | 真实运行 |
 | `--skip-git-repo-check` | 允许非 git 目录 | 真实运行 |
 | `--color never` | 关 ANSI | 真实运行 |
@@ -1001,7 +1009,6 @@ const result = spawnSync(CX, [
   "--color", "never",
   "--json",
   "--sandbox", "read-only",
-  "-m", "MiniMax-M3",
   "-C", "E:/你的项目",
   "-o", last,
   "-",
@@ -1041,9 +1048,9 @@ $CX = (Select-String -Path "$env:USERPROFILE\.codex\config.toml" -Pattern 'CODEX
 & $CX login status
 # → Logged in using an API key
 
-# 3. 最小 headless + MiniMax-M3
+# 3. 最小 headless（不传 -m：默认模型由 §1 默认模型怎么查 / §15.1 决定）
 "Reply with only the two letters: OK" |
-  & $CX exec --ephemeral --skip-git-repo-check --color never --json --sandbox read-only -m MiniMax-M3 -C "$env:TEMP" -o "$env:TEMP\codex-last.txt" -
+  & $CX exec --ephemeral --skip-git-repo-check --color never --json --sandbox read-only -C "$env:TEMP" -o "$env:TEMP\codex-last.txt" -
 # exit 0，codex-last.txt = OK
 
 # 4. JSONL 含 thread.started / agent_message / turn.completed
@@ -1065,9 +1072,9 @@ $TID = [regex]::Match(($J | Select-Object -First 1), '"thread_id":"([^"]+)"').Gr
 ### 15.8 可选路径（本机不必走）
 
 - **ChatGPT 官方模型**：需要 `codex login`（ChatGPT OAuth / `--device-auth`），不要 `--ignore-user-config` + 现有 `sk-cp-` key 打 Platform。本次未改登录。
-- **npm `@openai/codex`**：会装第二份 CLI，和桌面升级通道打架。本机未装，也不推荐为了 headless 再装。
+- **npm `@openai/codex`**：会装第二份 CLI，和桌面升级通道打架。验证时本机未装，也不推荐为了 headless 再装。
 
-## 16. Claude Code（Anthropic 官方 native installer）headless 调用 [本节标注版本 2.1.204，2026-09-03]
+## 16. Claude Code（Anthropic 官方 native installer）headless 调用 [本节已实测 / 仅帮助文档]
 
 ### 16.1 入口与版本
 
@@ -1084,7 +1091,7 @@ $TID = [regex]::Match(($J | Select-Object -First 1), '"thread_id":"([^"]+)"').Gr
 
 ### 16.2 鉴权 / 配置（不打印任何 key）
 
-[已实测] 本机 `~/.claude/settings.json` 已配好 OAuth token，无需 `claude auth`；无需 `ANTHROPIC_API_KEY` 环境变量。本机 `modelUsage` 字段显示 `glm-5.2`（key 是 `glm-5.2`，值含 `inputTokens/outputTokens/cacheReadInputTokens/cacheCreationInputTokens/webSearchRequests/costUSD/contextWindow:200000/maxOutputTokens:32000`），说明请求被路由到非 Anthropic 官方模型——具体路由机制（router / env / settings）不深究，调用方用 JSON 里 `modelUsage` 的 key 当「实际跑的是哪个模型」的判据即可。
+探活：检查 `~/.claude/settings.json`（OAuth token 路径）是否存在；存在即已配置，无需 `claude auth` 也无需 `ANTHROPIC_API_KEY` 环境变量。验证时（本机 2026-09-03 实测）`modelUsage` 字段显示 `glm-5.2`（key 是 `glm-5.2`，值含 `inputTokens/outputTokens/cacheReadInputTokens/cacheCreationInputTokens/webSearchRequests/costUSD/contextWindow:200000/maxOutputTokens:32000`），说明请求被路由到非 Anthropic 官方模型——**路由机制（router / env / settings）未深究**；调用方用 JSON 里 `modelUsage` 的 key 当「实际跑的是哪个模型」的判据即可（每次跑都看一次，因为路由可能换）。
 
 ### 16.3 Headless 单次运行（最小示例）[已实测]
 
@@ -1108,7 +1115,7 @@ Set-Location "$env:TEMP"
 | `-p, --print` | 单次任务（headless 必需；非交互默认进 TUI） | 已实测 |
 | `--output-format <FMT>` | `text`（默认）/ `json`（单个 result 对象）/ `stream-json`（NDJSON） | 已实测（json）；stream-json 仅帮助文档 |
 | `--input-format <FMT>` | `text`（默认）/ `stream-json`（与 `--output-format stream-json` 配对做双向流） | 仅帮助文档 |
-| `--model <MODEL>` | 覆盖默认模型；本机传 `glm-5.2` 也通 | 仅帮助文档（路由机制下未实测自定义 model） |
+| `--model <MODEL>` | 覆盖默认模型（值由 §1 默认模型怎么查 / §16.2 决定；详见 §16.2 的快照说明） | 仅帮助文档（路由机制下未实测自定义 model） |
 | `--effort <LEVEL>` | 推理强度，实测可接受 `low, medium, high, xhigh, max`（与 Grok 同名同语义） | 仅帮助文档 |
 | `--permission-mode <MODE>` | `acceptEdits` / `auto` / `bypassPermissions` / `manual` / `dontAsk` / `plan` | 已实测（plan ~7.3s 回 READ_ONLY_OK，exit 0） |
 | `--allowed-tools` / `--allowedTools <list>` | 逗号或空格分隔的允许工具列表 | 仅帮助文档 |
@@ -1174,7 +1181,7 @@ Set-Location "$env:TEMP"
 - `result` — 最终回答（取代 ZCode 的 `response` / Grok 的 `text`，命名与 Codex 不同）
 - `session_id` — 本次调用所属 session 的 UUID（详见 §16.7 的 resume 机制坑）
 - `usage` — snake_case 字段（与 Grok 同风格，与 ZCode camelCase 不同）
-- `modelUsage` — 实际生效模型 + 成本明细；本机 key 为 `glm-5.2`
+- `modelUsage` — 实际生效模型 + 成本明细；key 由 §1 默认模型怎么查 / §16.2 的探活决定（验证时本机为 `glm-5.2`）
 - `stop_reason` — `end_turn` / `max_tokens` / `tool_use` 等
 - `is_error` / `permission_denials` — 出错判定（与 `subtype == "error"` 配对）
 
@@ -1210,16 +1217,16 @@ $SID = ($J1 | ConvertFrom-Json).session_id
 
 ### 16.8 与其它三家的差异
 
-| 项 | ZCode | Grok | Codex 0.153 | Claude Code 2.1.204 |
+| 项 | ZCode | Grok | Codex | Claude Code |
 |---|---|---|---|---|
-| 默认模型 | `bigmodel/glm-5.3` | `grok-4.6-build` | MiniMax-M3 | glm-5.2（路由后） |
+| 默认模型 | 见 §1 默认模型怎么查 | 见 §1 默认模型怎么查 | 见 §1 默认模型怎么查 | 见 §1 默认模型怎么查 |
 | JSON 字段命名 | camelCase（`inputTokens`） | snake_case（`input_tokens`） | JSONL + 多种事件 | snake_case（`usage`），camelCase（`modelUsage.*`）混用 |
 | 成本字段 | 无 | `total_cost_usd` | 无 | `total_cost_usd` + `modelUsage.{model}.costUSD` |
 | 续接 key | `--resume sess_xxx` | `-r <sessionId>` | `exec resume <thread_id>` | `--resume <session_id>`（同目录实测可用，§16.7） |
 | 只读模式 | `--mode plan` | `--permission-mode plan` | `--sandbox read-only` | `--permission-mode plan` |
 | 工具 disable | 空格分隔 | 逗号分隔 | 无（用 sandbox 替代） | 逗号或空格分隔（flag 接受；实测单禁 `Bash` 拦不住终端，§16.4） |
 | 自读大文件 | `--cwd + Read` | `--cwd + read_file` | `-C + shell` | spawnSync `cwd` 选项（无 `--cwd` flag） |
-| headless 缺省权限 | `yolo` | `default`（必加 `--always-approve`） | 本机 config `never` | `-p` 默认自动批准；只读场景显式 `--permission-mode plan` |
+| headless 缺省权限 | `yolo` | `default`（必加 `--always-approve`） | 看 `~/.codex/config.toml` 的 `approval_policy`（验证时本机为 `never`） | `-p` 默认自动批准；只读场景显式 `--permission-mode plan` |
 
 ### 16.9 最小 spawnSync 范例（Node）
 
@@ -1247,7 +1254,7 @@ if (result.status === 0) {
   console.log(parsed.result);                   // 最终回答
   console.log(parsed.session_id);               // 续接 key（两次调用须同 cwd，§16.7）
   console.log(parsed.total_cost_usd);           // 美元成本
-  console.log(Object.keys(parsed.modelUsage));  // 实际生效模型，本机是 [\"glm-5.2\"]
+  console.log(Object.keys(parsed.modelUsage));  // 实际生效模型；key 由 §1 默认模型怎么查 / §16.2 决定（验证时本机 = ["glm-5.2"]）
 } else if (result.status === 1) {
   console.error("claude error:", result.stderr);
 } else if (result.signal === "SIGTERM") {

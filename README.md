@@ -15,7 +15,7 @@ Multi-agent CLI (ZCode / Grok / Codex / Claude Code) headless usage guide.
 - **Codex CLI**: 由 Codex 桌面版同步到用户目录, 路径见 `~/.codex/config.toml` 的 `CODEX_CLI_PATH`
 - **Claude Code**: 由 Anthropic 官方 native installer 提供, 路径 `%USERPROFILE%\.local\bin\claude.exe`
 
-具体版本适配与获取方式见 SKILL.md §1.
+具体版本适配与获取方式见 SKILL.md §1（按 §1 初始化协议先 probe 本机实际有哪些可用）。
 
 ## 五分钟上手
 
@@ -31,7 +31,7 @@ Get-Content "$env:TEMP\codex-last.txt"   # → OK
 
 完整命令模板 (四家对照 / 只读 review / 修复类任务) 见 SKILL.md §2.
 
-**能力探测 (capability probing)**: 调用方在 spawn 之前先按 SKILL.md §1.1 的子句 probe 本机实际有哪些 CLI 可用, 只使用存在的. 本技能不引导安装 — 安装路径随厂商 / 平台 / 桌面版差异极大, 已超出 headless 调用手册的职责.
+**能力探测 (capability probing)**: 调用方在 spawn 之前先按 SKILL.md §1 初始化协议 probe 本机实际有哪些 CLI 可用, 只使用存在的. 本技能不引导安装 — 安装路径随厂商 / 平台 / 桌面版差异极大, 已超出 headless 调用手册的职责.
 
 ## 仓库结构
 
@@ -39,6 +39,8 @@ Get-Content "$env:TEMP\codex-last.txt"   # → OK
 - `LICENSE` -- MIT License
 - `README.md` -- 本文件
 - `.gitignore` -- 本地工作区排除规则
+
+[已实测] 结论验证于 2026-09-03：zcode 0.16.5 / Grok CLI 1.0.5 / Codex CLI 0.153.0-alpha.5 / Claude Code 2.1.204（Windows 11, build 26200）. 本技能不设版本门槛；版本不同时结论可能漂移，按 SKILL.md §1 的发现方法与各章自检清单重新验证.
 
 验证环境: Windows 11 (win32 10.0.26200 x64), Node v24.5.0, Git Bash / PowerShell. 其它环境结论未验证.
 
