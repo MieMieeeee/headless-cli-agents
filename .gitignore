@@ -1,0 +1,9 @@
+# Local-only working area
+/plan/
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
