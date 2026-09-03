@@ -2,8 +2,8 @@
 name: headless-cli-agents
 display-name: ZCode / Grok / Codex 命令行（headless）使用指南
 description: 本机可调用的 CLI agents 一览，以及如何以无界面（headless）方式调用 ZCode / Grok / Codex，供脚本或其他 agent 做代码审查等任务。先列有哪些 agent，再给抄命令模板；后半是各 CLI 的配置、参数、JSON 格式与排错。
-version: 1.4.3
-author: zcode
+version: 1.4.4
+author: MieMieeeee
 tags: zcode, grok, codex, CLI, headless, multi-agent, 代码审查, agent协作
 category: 工具使用
 ---
@@ -13,7 +13,7 @@ category: 工具使用
 给**其他 agent / 脚本**看的调用手册：先看 §1 有哪些 CLI，再抄 §2 的命令。ZCode / Grok / Codex 的细参数分别在 §3–§13 / §14 / §15。
 
 - 适用版本：**zcode 0.16.5**（Windows，ZCode 桌面版自带 CLI）；**Grok CLI 1.0.5**（Windows，xAI 官方 CLI）；**Codex CLI 0.153.0-alpha.5**（ChatGPT Codex 桌面版同步到用户目录的 CLI，默认模型是 cc-switch 的 MiniMax-M3，详见 §1 / §15）
-- 验证环境：Windows 10 (win32 10.0.26200 x64)，Node v24.5.0，Git Bash / PowerShell
+- 验证环境：Windows 11 (win32 10.0.26200 x64)，Node v24.5.0，Git Bash / PowerShell
 - 标注图例：**[已实测]** = 技能方在本机验证通过；**[外部实测]** = 验证 agent 实战数据；**[仅帮助文档]** = 来自 `--help` 输出、未实测；**[实测不可用]** = 当前版本拒绝，勿用
 - v1.1.0 变更：合入外部实测反馈——大文档 review 推荐模式（当时 §3.1）、耗时预算、程序化调用的进度/超时/maxBuffer 排错。
 - v1.2.0 变更：新增「复杂任务写进文件、prompt 保持短指令」为推荐实践（两跳模式）。
@@ -22,6 +22,7 @@ category: 工具使用
 - **v1.4.1 变更**（2026-08-25 全量复测三家）：ZCode 0.16.3→**0.16.5**（§6.2 拒绝参数清单在新版复验仍拒绝）；Codex 升到 **0.149.0-alpha.4.3**、哈希目录再变，§2.3 / §15 示例改为从 `CODEX_CLI_PATH` 动态取路径；`exec resume` 由「仅帮助文档」升级为「已实测」，其 flag 子集限制与位置参数坑写入 §15.3；新增实测坑：**Windows PowerShell 5.1 管道喂中文 stdin 会变 `???`**，须先设 `$OutputEncoding`（§2.3 / §15.2）；三家最小调用 / JSON / 续接 / 错误路径全部复验通过。
 - **v1.4.2 变更**（2026-09-03 合入修复类任务实战反馈）：Codex 随桌面升级到 **0.153.0-alpha.5**（哈希 `994e8469124a0d31`，动态取法复验有效，§15.3 参数清单实战未见新变化）；新增两个坑——**① Codex 的 shell 工具读 UTF-8 无 BOM 中文文件会按 GBK 解码成乱码**（与 PS 5.1 stdin 坑是两个失败面，两跳任务文件建议英文或带 BOM，§15.2）；**② 沙箱里自建 venv 验证 ≠ 调用方环境**（会误诊依赖缺失类失败，pytest 还需 `--basetemp`，§2.5）；新增 **§2.5 Codex 修复类任务（workspace-write）模板**（编码防护 / 指定验证解释器 / 调用方复跑）。
 - **v1.4.3 变更**（2026-09-03 公开前脱敏）：移除个人信息、硬编码本地用户路径参数化为环境变量形式、frontmatter `name` 改为 `headless-cli-agents`、`tags` 加 `multi-agent`、`version` 升 1.4.3。
+- **v1.4.4 变更**（2026-09-03 发布前 review 修复）：README「五分钟上手」改为实测可跑命令（原示例误用 `--full-auto`，0.153 实测被拒）；补齐脱敏丢失的路径分隔符（`%USERPROFILE%\` / `%LOCALAPPDATA%\`，10 处）；示例与自检的工作目录参数化为 `%TEMP%` / `$env:TEMP`（去本机盘符依赖）；§15.6 范例改为从 config.toml 动态取路径；Grok `-r` 续接补实测（暗号续答正确，§14.10 第 6 项）；实测发现 `--disallowed-tools` 只写 `Bash` 禁不住终端工具（§14.4.1）；`author` 对齐 LICENSE（MieMieeeee）；验证环境更正为 Windows 11（build 26200）；示例会话 ID / token 过期时间脱敏。
 
 ## 1. 本机可用的 CLI agents
 
@@ -167,7 +168,7 @@ zcode 除了桌面版和全屏 TUI，还支持**无界面单次运行**（headle
 zcode **不在 PATH 里**，它是桌面版自带的 CLI 脚本，实际入口：
 
 ```
-%USERPROFILE%AppData\Local\Programs\ZCode\resources\glm\zcode.cjs
+%LOCALAPPDATA%\Programs\ZCode\resources\glm\zcode.cjs
 ```
 
 必须用 node 调用。等价写法：
@@ -198,13 +199,13 @@ alias zcode='node "$LOCALAPPDATA/Programs/ZCode/resources/glm/zcode.cjs"'
 独立 CLI **不读桌面版的配置**。桌面版登录的凭据在 `~/.zcode/v2/config.json`，而 CLI 读的是：
 
 ```
-%USERPROFILE%.zcode\cli\config.json
+%USERPROFILE%\.zcode\cli\config.json
 ```
 
 该文件不存在或没有 provider 时，任何 `--prompt` 调用都会报错：
 
 ```
-Error: Model config is missing. Create %USERPROFILE%.zcode\cli\config.json with an explicit model provider before running ZCode.
+Error: Model config is missing. Create %USERPROFILE%\.zcode\cli\config.json with an explicit model provider before running ZCode.
 ```
 
 **[已实测]** 本机此文件已配好，内容模板如下（与官方 `login` 命令写入的格式逐字段一致，此格式从 zcode.cjs 0.16.3 源码中的配置写入函数核对得出）：
@@ -373,9 +374,9 @@ zcode --prompt "1+1等于几？只回答数字" --json
 
 ```json
 {
-  "sessionId": "sess_c25fe17b-481b-4e6d-8cc7-4ca541e40e12",
-  "traceId": "c4e58f79-a265-495c-846a-a7e7f205bcdc",
-  "turnId": "turn_a26aa33e-99a7-4d20-899d-340eb0328368",
+  "sessionId": "sess_c25fe17b-...",
+  "traceId": "c4e58f79-...",
+  "turnId": "turn_a26aa33e-...",
   "response": "2",
   "usage": {
     "source": "provider",
@@ -484,7 +485,7 @@ node "$ZC" --resume sess_xxx --prompt "第 2 节 #5 具体错在第几行？给�
 4. **CLI login 不接受命令行传 key**，只走 OAuth；CI/无人值守环境直接写配置文件。
 5. headless 默认 `yolo` 模式会自动批准工具调用，无人值守场景务必用 `--disallowed-tools` 收窄权限（或 `--mode plan` 之类更保守的模式）。
 6. **`--attach` 大文件会拖死任务** [外部实测]：72KB 附件 8 分钟超时无输出。大文档一律 `--cwd` 自读（§5.1）。
-7. **BigModel API 长任务偶发 hang** [外部实测]：部分大 prompt 会卡超过 10 分钟。对策：拆任务、在 prompt 末尾加"仅回复，不要写完整分析"压缩输出、超时给足但不超过 25 分钟（§13.5）。
+7. **BigModel API 长任务偶发 hang** [外部实测]：部分大 prompt 会卡超过 10 分钟。对策：拆任务、在 prompt 末尾加"仅回复，不要写完整分析"压缩输出、超时给足但不超过 20 分钟（§13.2 / §13.5）。
 8. **Node spawnSync 默认 maxBuffer 约 1MB** [已实测：600KB 通过、2MB 报 ENOBUFS 截断]：大报告场景必须显式调大，否则静默截断（§13.3）。
 9. **长 prompt 直接写在命令行上必踩转义坑**：引号/换行/中文在 cmd、PowerShell、Git Bash 三套 shell 里转义规则不同，且 Windows 命令行有长度硬上限（cmd.exe 约 8KB）。复杂要求一律按 §5.2 写任务文件，prompt 只留一句短指令。
 
@@ -609,21 +610,21 @@ xAI 官方 Grok CLI（v1.0.5）的 headless 模式与 ZCode 形态接近，但�
 ### 14.1 它是什么 / 入口在哪
 
 - 适用版本：**Grok 1.0.5**（Windows，xAI 官方 CLI）
-- 验证环境：Windows 10 (win32 10.0.26200 x64)，`grok --version` → `grok 1.0.5 (5115b46bc9)`
+- 验证环境：Windows 11 (win32 10.0.26200 x64)，`grok --version` → `grok 1.0.5 (5115b46bc9)`
 - 二进制入口（**不是** `~/.grok/grok.exe`，那个目录列表里的项在 `bin/` 子目录里）：
 
 ```
-%USERPROFILE%.grok\bin\grok.exe
+%USERPROFILE%\.grok\bin\grok.exe
 ```
 
-⚠ **路径陷阱** [已实测]：直接在 `%USERPROFILE%.grok\` 下 `Get-ChildItem` 会显示 `grok.exe` / `agent.exe` 两个 142MB 的"幻影"条目，但 PowerShell 是把 `bin/` 里的内容拍平渲染的，**真实路径就是 `bin\grok.exe`**。
+⚠ **路径陷阱** [已实测]：直接在 `%USERPROFILE%\.grok\` 下 `Get-ChildItem` 会显示 `grok.exe` / `agent.exe` 两个 142MB 的"幻影"条目，但 PowerShell 是把 `bin/` 里的内容拍平渲染的，**真实路径就是 `bin\grok.exe`**。
 
 ### 14.2 认证：已配好，7 天过期
 
-[已实测] 本机已 OIDC 登录，token 在 `%USERPROFILE%.grok\auth.json`：
+[已实测] 本机已 OIDC 登录，token 在 `%USERPROFILE%\.grok\auth.json`：
 
 - 邮箱：`<登录邮箱>`
-- token 字段：`auth_mode: "oidc"`、`expires_at: "2026-08-25T19:33:40..."`
+- token 字段：`auth_mode: "oidc"`、`expires_at: "<7 天后的过期时间>"`
 - Token 7 天后过期；过期后 `grok -p` 会自动重新走浏览器登录流程，或者用 `grok login` 主动续。
 - CI / 静默环境不走 OIDC：设 `XAI_API_KEY=xai-...` 环境变量，API key 优先于浏览器凭据。
 
@@ -639,9 +640,9 @@ grok --single "你的任务描述" [...]
 最小可运行示例 [已实测，~3-10s 出结果]：
 
 ```bash
-"%USERPROFILE%.grok\bin\grok.exe" ^
+"%USERPROFILE%\.grok\bin\grok.exe" ^
   -p "只回复一个字：好" ^
-  --cwd "E:/CC/ZZ" ^
+  --cwd "%TEMP%" ^
   --output-format json
 ```
 
@@ -651,8 +652,8 @@ grok --single "你的任务描述" [...]
 {
   "text": "好",
   "stopReason": "end_turn",
-  "sessionId": "01a03938-0249-7780-bc01-c871d5eee1da",
-  "requestId": "8d84a7f0-92f8-4de1-9124-70e04edb6148",
+  "sessionId": "01a03938-...",
+  "requestId": "8d84a7f0-...",
   "thought": "The user asked me to reply with only one character: 好 ...",
   "usage": {
     "input_tokens": 22074,
@@ -689,12 +690,12 @@ grok --single "你的任务描述" [...]
 | `--output-format <FMT>` | `plain`（默认）/ `json` / `streaming-json` / `streaming-messages-json` | 真实运行 |
 | `--always-approve` | 自动批准工具调用（无人值守脚本必加） | 真实运行 |
 | `--permission-mode <MODE>` | `default` / `acceptEdits` / `auto` / `dontAsk` / `bypassPermissions` / `plan` | 真实运行（help 列出 6 值） |
-| `--disallowed-tools <list>` | 逗号分隔，移除工具；支持 `Agent(type)` 阻断 subagent | 真实运行（接受 `Edit,Write,Bash`） |
+| `--disallowed-tools <list>` | 逗号分隔，移除工具；支持 `Agent(type)` 阻断 subagent | 真实运行（flag 接受 `Edit,Write,Bash` / `run_terminal_cmd`）。⚠ 2026-09-03 实测：只写 `Bash` **禁不住**终端工具（echo 命令照跑）；写 `run_terminal_cmd` 能移除主 shell，但模型自述仍可走兜底 command runner——**只读场景不要单靠工具名黑名单，必须配合 `--permission-mode plan`**（§2.2 即此写法） |
 | `--tools <list>` | 逗号分隔 allowlist；同时设了 `--disallowed-tools` 时后者再扣 | 仅帮助文档 |
 | `--max-turns <N>` | 限制 agentic turn 数 | 仅帮助文档 |
 | `-m, --model <MODEL>` | 模型 ID，例 `grok-4.6-build`；不传走默认 | 仅帮助文档 |
 | `--reasoning-effort <LEVEL>` / `--effort` | 推理强度（**实测只接受 `low|medium|high|xhigh`**，见 §14.4.2） | 真实运行 |
-| `-r, --resume <ID>` | 按 sessionId 续接；可省略 ID 取当前目录最近 | 仅帮助文档 |
+| `-r, --resume <ID>` | 按 sessionId 续接；可省略 ID 取当前目录最近 | 真实运行（2026-09-03 实测：暗号续答正确，见 §14.10 第 6 项） |
 | `-c, --continue` | 续接当前目录最近一次会话 | 仅帮助文档 |
 | `-s, --session-id <ID>` | CI/CD 用的命名 session（不存在则新建） | 仅帮助文档 |
 | `--rules <TEXT>` | 追加到系统 prompt | 仅帮助文档 |
@@ -736,7 +737,7 @@ Error: --effort/--reasoning-effort: unknown effort level 'xxx'; use one of: xhig
 实测 plain 模式 [已实测 ~3s]：
 
 ```bash
-"%USERPROFILE%.grok\bin\grok.exe" ^
+"%USERPROFILE%\.grok\bin\grok.exe" ^
   -p "only say OK" ^
   --reasoning-effort low ^
   --output-format plain 2>$null
@@ -833,7 +834,7 @@ $GRK = "$env:USERPROFILE\.grok\bin\grok.exe"
 # → OK
 
 # 3. JSON 输出 + 字段名验证（不要 2>&1，stdout 是干净的 JSON）
-& "$GRK" -p "只回复一个字：好" --cwd "E:/CC/ZZ" --output-format json | Select-Object -Last 12
+& "$GRK" -p "只回复一个字：好" --cwd "$env:TEMP" --output-format json | Select-Object -Last 12
 # → 含 "text": "好"、"sessionId": "..."、"total_cost_usd": ...
 
 # 4. cwd 不存在 → 报错 exit 1
@@ -844,6 +845,12 @@ $GRK = "$env:USERPROFILE\.grok\bin\grok.exe"
 & "$GRK" -p "x" --reasoning-effort none --output-format json 2>$null
 # Error: --effort/--reasoning-effort: unknown effort level 'none'; ...
 # exit 1
+
+# 6. 续接 -r（2026-09-03 实测可用）
+$J = & "$GRK" -p "记住暗号：冬瓜77号。只回复：记住了" --cwd "$env:TEMP" --output-format json --always-approve 2>$null
+$SID = [regex]::Match(($J -join "`n"), '"sessionId":"([^"]+)"').Groups[1].Value
+& "$GRK" -r $SID -p "暗号是什么？只回复暗号本身" --always-approve --output-format plain 2>$null
+# → 冬瓜77号
 ```
 
 ## 15. Codex CLI（ChatGPT 桌面版 / MiniMax-M3）headless 调用 [本节除注明外已实测，2026-08-25；版本/哈希于 2026-09-03 复测更新至 0.153.0-alpha.5]
@@ -854,9 +861,9 @@ $GRK = "$env:USERPROFILE\.grok\bin\grok.exe"
 
 | 路径 | 版本 | spawn |
 |---|---|---|
-| `%USERPROFILE%AppData\Local\OpenAI\Codex\bin\994e8469124a0d31\codex.exe` | **0.153.0-alpha.5**（当前，2026-09-03 复测） | ✅ [已实测] `--version` / `exec` / `exec resume`（修复类实战见 §2.5） |
+| `%LOCALAPPDATA%\OpenAI\Codex\bin\994e8469124a0d31\codex.exe` | **0.153.0-alpha.5**（当前，2026-09-03 复测） | ✅ [已实测] `--version` / `exec` / `exec resume`（修复类实战见 §2.5） |
 | `...\OpenAI\Codex\bin\<旧哈希>\codex.exe`（如 v1.4.1 时的 `8fffe69425752027`、v1.4.0 时的 `f79cfd43cf28a53a`） | 已随桌面升级失效 | ❌ 目录不存在（旧哈希目录会在 bin\ 下残留多个，均勿依赖） |
-| `%USERPROFILE%AppData\Local\OpenAI\Codex\bin\codex.exe` | 0.130.0-alpha.5 | 能跑，但是旧副本，不要用 |
+| `%LOCALAPPDATA%\OpenAI\Codex\bin\codex.exe` | 0.130.0-alpha.5 | 能跑，但是旧副本，不要用 |
 | `C:\Program Files\WindowsApps\OpenAI.Codex_26.818.8289.0_x64__2p2nqsd0c76g0\app\resources\codex.exe` | Store 包 26.818.8289.0 自带 | ❌ Access is denied（Store ACL） |
 
 发现当前二进制（桌面升级后哈希会变）：
@@ -880,7 +887,7 @@ $CX = (Select-String -Path "$env:USERPROFILE\.codex\config.toml" -Pattern 'CODEX
 
 # 短 prompt 可以直接当参数；长 prompt / 含空格：走 stdin
 "Reply with only the two letters: OK" |
-  & $CX exec --ephemeral --skip-git-repo-check --color never --json --sandbox read-only -C "E:\cc\ZZ" -o "$env:TEMP\codex-last.txt" -
+  & $CX exec --ephemeral --skip-git-repo-check --color never --json --sandbox read-only -C "$env:TEMP" -o "$env:TEMP\codex-last.txt" -
 # [已实测] exit 0，约 8s，last.txt = OK
 ```
 
@@ -888,14 +895,14 @@ $CX = (Select-String -Path "$env:USERPROFILE\.codex\config.toml" -Pattern 'CODEX
 
 ```powershell
 "Reply with only this exact line: MiniMax-M3-CLI-OK" |
-  & $CX exec --ephemeral --skip-git-repo-check --color never --json --sandbox read-only -m MiniMax-M3 -C "E:\cc\ZZ" -o "$env:TEMP\codex-last.txt" -
+  & $CX exec --ephemeral --skip-git-repo-check --color never --json --sandbox read-only -m MiniMax-M3 -C "$env:TEMP" -o "$env:TEMP\codex-last.txt" -
 # last.txt = MiniMax-M3-CLI-OK
 ```
 
 `--json` stdout 是 JSONL，不是单个对象 [已实测]：
 
 ```json
-{"type":"thread.started","thread_id":"01a03947-ca2d-7d03-a1f1-2001c79ae9cb"}
+{"type":"thread.started","thread_id":"01a03947-..."}
 {"type":"turn.started"}
 {"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"OK"}}
 {"type":"turn.completed","usage":{"input_tokens":23417,"cached_input_tokens":4480,"output_tokens":18,"reasoning_output_tokens":0}}
@@ -928,7 +935,7 @@ $CX = (Select-String -Path "$env:USERPROFILE\.codex\config.toml" -Pattern 'CODEX
 | 参数 | 现象 |
 |---|---|
 | `--ask-for-approval` | `exec` 没有此 flag（只在顶层 TUI）。传入 `unexpected argument`，exit **2** [已实测] |
-| `--full-auto` | 0.149 `exec --help` 无此 flag |
+| `--full-auto` | 0.149 `exec --help` 无此 flag；0.153 实测传入报 `unexpected argument`（2026-09-03，README 曾误用已修） |
 | `-s <sessionId>` | `-s` 是 sandbox。续接用 `exec resume` |
 | `exec resume` 后跟 `--sandbox` / `-C` / `--color` | [已实测] resume 只认自己的 flag 子集（`--json` `-o` `-m` `--skip-git-repo-check` `-c` `--ephemeral` `--last` `--all` 等），上述三个报 `unexpected argument` exit 2。沙箱用 `-c 'sandbox_mode="read-only"'` 覆盖，工作目录沿用原 session |
 | `exec resume <id> - ... -o file -`（结尾多挂 `-`） | [已实测] resume 的位置参数只有 `[SESSION_ID] [PROMPT]`，`-`（stdin）放 PROMPT 位即可；结尾再挂一个报 `unexpected argument '-'`，exit 2 |
@@ -953,11 +960,9 @@ const { spawnSync } = require("child_process");
 const fs = require("fs");
 const path = require("path");
 
-// 哈希目录随桌面升级变化（发现方法见 §15.1）；当前 994e8469124a0d31
-const CX = path.join(
-  process.env.LOCALAPPDATA,
-  "OpenAI", "Codex", "bin", "994e8469124a0d31", "codex.exe"
-);
+// 哈希目录随桌面升级变化，从 config.toml 动态取（发现方法见 §15.1），不要写死哈希
+const CX = fs.readFileSync(path.join(process.env.USERPROFILE, ".codex", "config.toml"), "utf8")
+  .match(/CODEX_CLI_PATH\s*=\s*'([^']+)'/)[1];
 const last = path.join(process.cwd(), "codex_last.txt");
 
 const result = spawnSync(CX, [
@@ -1008,7 +1013,7 @@ $CX = (Select-String -Path "$env:USERPROFILE\.codex\config.toml" -Pattern 'CODEX
 
 # 3. 最小 headless + MiniMax-M3
 "Reply with only the two letters: OK" |
-  & $CX exec --ephemeral --skip-git-repo-check --color never --json --sandbox read-only -m MiniMax-M3 -C "E:\cc\ZZ" -o "$env:TEMP\codex-last.txt" -
+  & $CX exec --ephemeral --skip-git-repo-check --color never --json --sandbox read-only -m MiniMax-M3 -C "$env:TEMP" -o "$env:TEMP\codex-last.txt" -
 # exit 0，codex-last.txt = OK
 
 # 4. JSONL 含 thread.started / agent_message / turn.completed
@@ -1020,7 +1025,7 @@ $CX = (Select-String -Path "$env:USERPROFILE\.codex\config.toml" -Pattern 'CODEX
 # 6. 续接（中文 stdin 先修 PS 5.1 编码；- 是 PROMPT 位，结尾不要再挂 -）
 $OutputEncoding = [System.Text.Encoding]::UTF8
 $J = "记住暗号：冬瓜55号。只回复：记住了" |
-  & $CX exec --skip-git-repo-check --json --sandbox read-only -C "E:\cc\ZZ" -
+  & $CX exec --skip-git-repo-check --json --sandbox read-only -C "$env:TEMP" -
 $TID = [regex]::Match(($J | Select-Object -First 1), '"thread_id":"([^"]+)"').Groups[1].Value
 "暗号是什么？只回复暗号本身" |
   & $CX exec resume $TID - --skip-git-repo-check --json -c 'sandbox_mode="read-only"' -o "$env:TEMP\codex-resume.txt"

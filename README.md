@@ -18,13 +18,17 @@ Multi-agent CLI (ZCode / Grok / Codex) headless usage guide.
 
 ## 五分钟上手
 
-最小调用示例 (Codex 修复类任务):
+最小调用示例 (Codex 只读调用, PowerShell):
 
-```bash
-"$CODEX_CLI_PATH" exec --full-auto --sandbox workspace-write "你的任务描述"
+```powershell
+# codex.exe 路径从 config.toml 动态取 (桌面升级后哈希目录会变, 见 SKILL.md §15.1)
+$CX = (Select-String -Path "$env:USERPROFILE\.codex\config.toml" -Pattern 'CODEX_CLI_PATH').Line.Split("'")[1]
+"Reply with only the two letters: OK" |
+  & $CX exec --skip-git-repo-check --color never --json --sandbox read-only -o "$env:TEMP\codex-last.txt" -
+Get-Content "$env:TEMP\codex-last.txt"   # → OK
 ```
 
-完整命令模板与多家 CLI 对比见 SKILL.md §2.
+完整命令模板 (三家对照 / 只读 review / 修复类任务) 见 SKILL.md §2.
 
 ## 仓库结构
 
@@ -33,7 +37,7 @@ Multi-agent CLI (ZCode / Grok / Codex) headless usage guide.
 - `README.md` -- 本文件
 - `.gitignore` -- 本地工作区排除规则
 
-验证环境: Windows 10 (win32 10.0.26200 x64), Node v24.5.0, Git Bash / PowerShell. 其它环境结论未验证.
+验证环境: Windows 11 (win32 10.0.26200 x64), Node v24.5.0, Git Bash / PowerShell. 其它环境结论未验证.
 
 ## License
 
