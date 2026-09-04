@@ -2,7 +2,7 @@
 name: headless-cli-agents
 display-name: ZCode / Grok / Codex / Claude Code 命令行（headless）使用指南
 description: 如何发现本机已安装的 agent CLI，并以无界面（headless）方式调用 ZCode / Grok / Codex / Claude Code，供脚本或其他 agent 做代码审查等任务。先按探活协议确认可用 CLI，再给抄命令模板；后半是各 CLI 的配置、参数、JSON 格式与排错。
-version: 2.3.1
+version: 2.3.2
 author: MieMieeeee
 tags: zcode, grok, codex, claude, CLI, headless, multi-agent, 代码审查, agent协作
 category: 工具使用
@@ -63,7 +63,12 @@ test -f "$HOME/.local/bin/claude"                    # macOS 形态兜底（无 
 - macOS → 可直接抄 POSIX 家族实现（macOS 15 zsh 实测；ZCode 的 mac 资源路径仍未知）；
 - Linux → 不要抄上面两块的具体路径形态——走 `command -v <name>` 的通用发现链（与 macOS 发现链同源），探活命中什么用什么，复验前不当已验证实现。
 
-**macOS 发现链** [已实测：`command -v claude` → `~/.local/bin/claude`（Claude Code 2.1.118）、`command -v grok` → `~/.grok/bin/grok`、Codex 取自 `~/.codex/config.toml` 的 `CODEX_CLI_PATH` 指向 `/Applications/Codex.app/Contents/Resources/codex`（入口见 §15.1）；仅帮助文档：Homebrew 候选位置；未知：ZCode 资源路径]：Claude / Grok 走 `command -v <name>` 优先；候选位置 `~/.local/bin/claude`（**无扩展名**）、`/opt/homebrew/bin`（Apple Silicon Homebrew）、`/usr/local/bin`（Intel Homebrew）—— Homebrew 路径 [仅帮助文档]；Codex 仍读 `~/.codex/config.toml` 取 `CODEX_CLI_PATH`。ZCode 在 mac 的可用性未知——按上述 POSIX 家族 probe，结果可能就是"不可用"，如实记
+**macOS 发现链** [已实测：`command -v claude` → `~/.local/bin/claude`（Claude Code 2.1.118）、`command -v grok` → `~/.grok/bin/grok`、Codex 取自 `~/.codex/config.toml` 的 `CODEX_CLI_PATH` 指向 `/Applications/Codex.app/Contents/Resources/codex`（入口见 §15.1）；仅帮助文档：Homebrew 候选位置；未知：ZCode 资源路径]：Claude / Grok 走 `command -v <name>` 优先；候选位置 `~/.local/bin/claude`（**无扩展名**）、`/opt/homebrew/bin`（Apple Silicon Homebrew）、`/usr/local/bin`（Intel Homebrew）—— Homebrew 路径 [仅帮助文档]；Codex 仍读 `~/.codex/config.toml` 取 `CODEX_CLI_PATH`。ZCode 在 mac 的可用性未知——按上述 POSIX 家族 probe，结果可能就是"不可用"，如实记（mac 上 `~/Library/Application Support` 有 ZCode 目录但未见 glm 资源）。[待用户反馈验证]
+
+```bash
+find ~/.zcode "$HOME/Library/Application Support" -name "zcode*" -type f 2>/dev/null
+# 候选逐个 `<路径> --version` 验证；找到可用入口请反馈到仓库 issue 帮助补全
+```
 
 ### 本技能深度文档化的四家
 
@@ -88,6 +93,7 @@ test -f "$HOME/.local/bin/claude"                    # macOS 形态兜底（无 
 ### 初始化协议（首次使用本技能时）
 
 **Layer 1 — 免费、必跑**（按 §1 通用发现手段 逐家探活 + 按 §1 默认模型怎么查 读配置源），把结果汇报给上游 / 用户，如「本机可用 ZCode / Grok，Codex 当前未安装」。只做免费探测（PowerShell 家族 `Test-Path` / `where.exe`，POSIX 家族 `test -f` / `command -v`）+ 读 `config.json` / `config.toml` / `settings.json` / `--help`——**不发任何真实模型调用**；Grok / Claude 的精确生效模型在免费层拿不到，留给 Layer 2。
+**(已指定平台时不替换，见 §2 统一约定第 7 项；存在多个时按 §2 四家最小对照 选最适合当前任务的那家，选定后告知用户)**
 
 **Layer 2 — 付费、按需**（首次在一台新机器采用本技能，或 Layer 1 结果疑似错时跑）：对探活命中的每家发**一次**最小调用——抄对应自检清单的**单条**命令（§12 第 3 项 / §14.10 第 2 项 / §15.7 第 3 项 / §16.10 第 3 项），不要整节照跑（整节含多轮真实调用）。**Claude Code 的最小调用是四家里最贵的，验证时约 $0.14**；其余几乎免费。
 
@@ -111,6 +117,7 @@ test -f "$HOME/.local/bin/claude"                    # macOS 形态兜底（无 
 4. 两跳的任务文件含中文时，**用 UTF-8 带 BOM 保存，或干脆写英文**：Codex 用它的 shell 工具读 UTF-8 无 BOM 中文文件会按 GBK 解码成乱码，带着乱码执行必然跑偏（实测坑，详见 §15.2）。`[Windows 特有]`（POSIX 默认 UTF-8 基本不踩；§15.2 已有细节）
 5. 若用 Node.js (spawnSync) 驱动，**必须**显式设 `maxBuffer ≥ 64MB`——默认约 1MB 会**静默截断**大报告（详见 §13.3）。
 6. 纯审查任务**必须**依赖各家 plan / read-only 权限模式（`--mode plan` / `--permission-mode plan` / `--sandbox read-only`）；`--disallowed-tools` 工具黑名单仅作辅助——实测 Grok --disallowed-tools 只写 `Bash` 拦不住（echo 照跑，§14.4.1）；Claude Code 禁 `"Edit,Write,Bash"` 组合（bypassPermissions 下）也拦不住（§16.4）。
+7. **平台选择权在上层**。用户/上游指定哪个 CLI 就用哪个（成本、模型、账号与数据边界的理由可能不为执行层所知）；未指定时调用方按 §2 四家最小对照选一家并**告知**用户选了什么；已指定时任何情况下不替换，失败按 §14.7 信号→动作矩阵处置，重试穷尽后如实报告、由用户决定下一步。
 
 PowerShell 抄 §2.1 / §2.2 / §2.3 / §2.5 这四条（先看 §2 四家最小对照挑哪家，修复类任务用 §2.4 修复模板；§2.1 / §2.2 / §2.3 / §2.4 / §2.5 双 shell）。
 
@@ -310,6 +317,37 @@ cd "<目标目录>" && CL=$(command -v claude || echo "$HOME/.local/bin/claude")
   --output-format json --permission-mode plan --disallowed-tools "Edit,Write,Bash"
 # stdout 是单个 JSON：.result = 最终回答；.session_id 续接须同目录（§16.7）
 ```
+
+### 降低中断率的调用策略 [策略建议，未验证]
+
+- **拆小任务**（唯一有双平台相关性证据的措施：Windows 5 次 cancelled 全在长
+  agentic 任务、mac 500 在稍长任务 5/5 复现、8 秒轻任务零失败 [外部实测 mac]）：调用方预生成
+  diff/材料文件让 Grok 只读不跑；按批次拆 review；报告分段生成。
+- 降 `--reasoning-effort`（high 流更长暴露面更大；review 用 low/medium 常够）。
+- 控制首条 prompt 长度（title 从 user text 生成，长 prompt 或放大辅助调用——
+  假设级）。
+- 错峰（两平台故障均聚于晚间高峰——观察级）。
+- 传输层自查（见 §14.7 传输层提示）。
+
+除拆任务外均为未验证策略，实测数据回来后逐条升级或证伪。
+
+### 排错速查（四家）
+
+| CLI | 高频信号 | 首要动作 |
+|---|---|---|
+| ZCode | exit 1（未知参数/config 缺失/会话不存在）；SIGTERM（超时） | stderr 首行定方向（§9）；超时拆任务（§13.2） |
+| Grok | exit 0 但 `stopReason != end_turn` 或 0 字节 stdout | 按 §14.7 信号→动作矩阵分流 |
+| Codex | exit 2（坏 flag）/ exit 1（401、任务失败） | 参数问题 §15.4；修复类 §2.4；`codex login status` 查认证 |
+| Claude | exit 1（`--resume` 跨目录 No conversation found） | 退出码 §16.6；同 cwd §16.7 |
+
+### 续接会话对照（四家）
+
+| | 语法 | 会话 ID 来源 | 已验证的特殊限制 |
+|---|---|---|---|
+| ZCode | `--resume sess_xxx --prompt` | JSON `.sessionId` | 不存在时报 `Session not found` exit 1 [已实测]；续接 yolo 会话建议显式收窄权限（建议） |
+| Grok | `-r <ID> -p` | JSON `.sessionId` | 暗号续答实测通过；token 7 天过期属认证层，与会话文件关系未测 |
+| Codex | `exec resume <thread_id> -` | JSONL `thread.started.thread_id` | resume 不认 `--sandbox`/`-C`/`--color`，沙箱用 `-c` 覆盖 [已实测] |
+| Claude | `--resume <ID> -p` | JSON `.session_id` | 两次调用须同 cwd [双平台实测]；session 落盘转写规则 §16.7 |
 
 下面是各 CLI 手册。调用方不需要也可以不往下读。
 
@@ -744,6 +782,7 @@ const result = spawnSync("node", [
   maxBuffer: 64 * 1024 * 1024,           // 默认约 1MB，大报告必须调大（§13.3）
   timeout: 20 * 60 * 1000,               // 20 分钟，中等 review 实测 ~4.4min
 });
+// 生产使用：JSON.parse 包 try/catch；失败按 §2 排错速查 重试
 
 if (result.status === 0) {
   const parsed = JSON.parse(result.stdout);
@@ -757,7 +796,7 @@ if (result.status === 0) {
 }
 ```
 
-## 14. Grok CLI（xAI）headless 调用 [本节均已实测，2026-08-25]
+## 14. Grok CLI（xAI）headless 调用 [本节除注明外已实测；Windows 2026-08-25，macOS 观测 2026-09-04 见各标注]
 
 xAI 官方 Grok CLI 的 headless 模式与 ZCode 形态接近，但有几个跟 README 不一致的细节，**踩过的标出**。当前版本见 §1 通用发现手段 / §14.10 自检。
 
@@ -832,7 +871,7 @@ grok --single "你的任务描述" [...]
 }
 ```
 
-程序化取结果先看 `stopReason`：`end_turn` 才是完整结果；`cancelled` 表示服务端中断（退出码仍是 0），恢复姿势见 §14.7 的 ⚠ 块。
+程序化取结果先看 `stopReason`：`end_turn` 才是完整结果；`cancelled` 表示服务端中断（退出码仍是 0），恢复姿势见 §14.7 信号→动作矩阵。
 
 ### 14.4 参数清单
 
@@ -924,13 +963,26 @@ Error: --effort/--reasoning-effort: unknown effort level 'xxx'; use one of: xhig
 | 成功 | `0` |
 | 未知 flag / `--reasoning-effort none` / cwd 不存在 / 模型错 | `1` |
 | OIDC token 过期未带 API key | `1`（stderr 给 reauth 提示） |
-| **服务端中断（`stopReason: cancelled`）** | **也是 `0`**——见下方 ⚠ |
-| API 5xx（容量 / 高负载） | `1`（stderr 有 `API error (status 500...)`，可等 1–2 分钟重试） |
+| **服务端中断（`stopReason: cancelled`）** | **也是 `0`**——见下方信号→动作矩阵 |
+| API 5xx（容量 / 高负载） | `1`（stderr 有 `API error (status 500...)`，可等 1–2 分钟重试；传输失败型为 exit 0 + 0 字节，见下方矩阵） |
 | 外层 timeout 强杀 | 跟随 shell（signal-based），spawnSync 拿 `result.signal` |
 
-> ⚠ **exit 0 ≠ 成功完成** [已实测，2026-09-03]：长 agentic 任务在 xAI 高负载时段可能被服务端中断流式响应，此时 CLI 退出码是 `0`、JSON 的 `stopReason` 是 `cancelled` 而非 `end_turn`，`text` 里只有中途叙述、没有最终报告。**程序化取结果必须检查 `stopReason == "end_turn"`，不能只看退出码**，否则会静默拿到半截输出。
->
-> **恢复姿势（实测两次有效）**：被取消的运行里已完成的工作不丢（session 文件保留全部工具结果）。用 `-r <sessionId>` 续接，配一句"不要再读文件，基于已看过的内容直接输出最终报告"，1 轮即可拿到报告（恢复成本 ~$0.02–0.04/次）。若续接撞上 `API error (status 500 ... at capacity)`，等 1–2 分钟重试同一 `-r` 命令即可。长审核任务想降低中断暴露面，可由调用方预生成 diff / 材料文件让 Grok 只读不跑，减少工具轮次。
+#### 信号→动作矩阵（Grok）
+
+| 信号（stdout/stderr/exit） | 判定 | 动作 |
+|---|---|---|
+| JSON 在，`stopReason: end_turn` | 成功 | 取 `text` |
+| JSON 在，`stopReason: cancelled`，exit 0 | 服务端中断（长 agentic 任务高发）[已实测 Windows ×5] | `-r <sessionId>` 续接让它直接输出报告（5/5 恢复，~$0.02–0.04/次） |
+| stdout **0 字节**，exit 0，无 stopReason，stderr 有 `WARN session title generation failed ... API error (status 500) ... Transport error` | 500 传输失败型（稍长任务易触发）[外部实测 mac ×5/5] | **`-r` 无效（没有 sessionId）**——sleep 5–10s 后**不带 `-r`** 重试同一 prompt，退避 1–2s 递增，上限 2–3 次 |
+| exit 1，stdout 是 error JSON（500 at capacity） | 容量型 [已实测 Windows] | 等 1–2 分钟重试同命令 |
+| exit 143 / signal=SIGTERM，stdout 0 字节 | **调用方自己的超时**，不是服务端问题 | 加大 timeout / 拆任务（§13.2），勿赖服务端 |
+| 重试穷尽仍失败 | — | **停止并报告用户**：哪家 CLI、哪类信号、已重试次数、已产生费用、已有的 sessionId（用户可手动 `-r`）、stderr 原文；**是否换平台由用户决定，执行层不代劳** |
+
+- **噪音注记** [外部实测 mac]：stderr 的 `actor reaped as DeadFailed` 是
+  lifecycle 日志，成功运行中同样出现，**不是失败信号**，勿据此排障。
+- **传输层提示** [外部实测 mac，观察级]：`reqwest ... Transport error` 可能来自
+  CLI 的 HTTP 栈，也可能来自拦截出网的本地代理（该机观测到每次经 ClashX
+  localhost:7890）；用代理的机器先查代理侧日志/直连 `api.x.ai` 再下结论。
 
 ### 14.8 与 ZCode headless 的关键差异
 
@@ -969,6 +1021,7 @@ const result = spawnSync(GROK, [
   maxBuffer: 64 * 1024 * 1024,
   timeout: 20 * 60 * 1000,
 });
+// 生产使用：JSON.parse 包 try/catch；失败按 §14.7 信号→动作矩阵 重试
 
 if (result.status === 0) {
   const parsed = JSON.parse(result.stdout);            // stdout 是干净的 JSON，§14.5
@@ -1037,6 +1090,16 @@ Select-String -Path "$env:USERPROFILE\.codex\config.toml" -Pattern 'CODEX_CLI_PA
 ```
 
 `codex login status` 返回 `Logged in using an API key` 时表示已登录；`~/.codex/config.toml` 关键字段（值随账号 / 路由而变，调用方按 §1 / §15.7 自检实际读到为准）：`model_provider`、`model`、`model_catalog_json`、`base_url`、`sandbox_mode`、`approval_policy`。**升级后请按 §1 通用发现手段 / §15.7 自检清单重新确认**——`approval_policy = "never"` + `sandbox_mode = "danger-full-access"` 的组合意味着 review 类任务不显式 `--sandbox read-only` 就会直接动文件。
+
+### 15.1.1 沙箱行为：Windows vs macOS [双平台实测]
+
+| 特性 | Windows | macOS |
+|---|---|---|
+| 可写根（workspace-write） | `-C` 目录 | `-C` 目录 + `/tmp`（→`/private/tmp` 符号链接） |
+| 默认 temp 目录 | **拒写**（pytest 需 `--basetemp` 指到仓库内） | **允许**（`/tmp`、`/private/tmp` 都在可写根里） |
+| `--basetemp` 的意义 | 绕开沙箱拒写 | 防仓库污染（产物落在 /tmp） |
+| 越界拒绝的表现 | 硬拒绝 | seatbelt 把可写根列表返回给模型，通常能自我修正 |
+| 修复类编码坑 | §15.2 双层编码坑适用 | `[Windows 特有]`，macOS 默认 UTF-8 基本不踩 |
 
 ### 15.2 Headless 单次运行
 
@@ -1147,6 +1210,7 @@ const result = spawnSync(CX, [
   maxBuffer: 64 * 1024 * 1024,
   timeout: 20 * 60 * 1000,
 });
+// 生产使用：JSON.parse 包 try/catch；失败按 §15.4 重试
 
 if (result.status === 0) {
   console.log(fs.readFileSync(last, "utf8")); // 最终回答
@@ -1379,6 +1443,7 @@ const result = spawnSync(CLAUDE, [
   maxBuffer: 64 * 1024 * 1024,
   timeout: 20 * 60 * 1000,
 });
+// 生产使用：JSON.parse 包 try/catch；失败按 §16.6 重试
 
 if (result.status === 0) {
   const parsed = JSON.parse(result.stdout);     // 单个 JSON 对象，§16.5
