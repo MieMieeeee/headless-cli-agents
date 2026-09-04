@@ -2,7 +2,7 @@
 name: headless-cli-agents
 display-name: ZCode / Grok / Codex / Claude Code 命令行（headless）使用指南
 description: 如何发现本机已安装的 agent CLI，并以无界面（headless）方式调用 ZCode / Grok / Codex / Claude Code，供脚本或其他 agent 做代码审查等任务。先按探活协议确认可用 CLI，再给抄命令模板；后半是各 CLI 的配置、参数、JSON 格式与排错。
-version: 2.2.0
+version: 2.3.0
 author: MieMieeeee
 tags: zcode, grok, codex, claude, CLI, headless, multi-agent, 代码审查, agent协作
 category: 工具使用
@@ -12,8 +12,9 @@ category: 工具使用
 
 给**其他 agent / 脚本**看的调用手册：先看 §1 有哪些 CLI，再抄 §2 的命令。ZCode / Grok / Codex / Claude Code 的细参数分别在 §3–§13 / §14 / §15 / **§16**。
 
-- 本文所有 [已实测] 结论验证于 2026-09-03：zcode 0.16.5 / Grok CLI 1.0.5 / Codex CLI 0.153.0-alpha.5 / Claude Code 2.1.204（Windows 11, build 26200）。本技能**不设版本门槛**；版本不同时结论可能漂移，按 §1 的发现方法与各章自检清单重新验证。各章自检清单里的「期望输出」同样是当日快照，随本机与版本而变，不是合格标准。
-- 适用范围：**知识层**（CLI 行为 / JSON 字段 / exit code / resume 协议 / stopReason 语义 / 恢复姿势）预期跨 OS 与 shell 通用；**环境层**（探活路径 / 安装位置 / 模板 shell 形态）当前验证基准 = Windows（PowerShell）+ Git Bash 实测的 POSIX 子集，macOS / Linux 未实测，按 §1 的发现方法与各章自检清单在本机复验。带平台标签的坑（`[Windows 特有]` / `[跨平台]`）按标签识别适用面。
+- 本文 [已实测] 结论验证于 2026-09-03（Windows）/ 2026-09-04（macOS，下行）：zcode 0.16.5 / Grok CLI 1.0.5 / Codex CLI 0.153.0-alpha.5 / Claude Code 2.1.204（Windows 11, build 26200）。本技能**不设版本门槛**；版本不同时结论可能漂移，按 §1 的发现方法与各章自检清单重新验证。各章自检清单里的「期望输出」同样是当日快照，随本机与版本而变，不是合格标准。
+- **macOS 15 (arm64, zsh) 于 2026-09-04 实测**：发现链 / POSIX 探活（`$HOME` 形态）/ Claude resume 同目录 / Codex 沙箱边界（`workspace-write` 可写 `/tmp`、越界拒写）。本节同样按快照随机器与版本漂移。
+- 适用范围：**知识层**（CLI 行为 / JSON 字段 / exit code / resume 协议 / stopReason 语义 / 恢复姿势）预期跨 OS 与 shell 通用；**环境层**（探活路径 / 安装位置 / 模板 shell 形态）当前验证基准 = Windows（PowerShell）+ Git Bash + macOS 15 (zsh) 实测的 POSIX 子集，其他 shell / Linux 未实测，按 §1 的发现方法与各章自检清单在本机复验。带平台标签的坑（`[Windows 特有]` / `[macOS 特有]` / `[跨平台]`）按标签识别适用面。
 - 验证环境：Windows 11 (win32 10.0.26200 x64)，Node v24.5.0，Git Bash / PowerShell
 - 标注图例：**[已实测]** = 技能方在本机验证通过；**[外部实测]** = 验证 agent 实战数据；**[仅帮助文档]** = 来自 `--help` 输出、未实测；**[实测不可用]** = 当前版本拒绝，勿用
 
@@ -36,34 +37,34 @@ Agent CLIs 通常由桌面版 / native installer 部署——短名可能完全�
 | **Codex** | 先 `Test-Path "$env:USERPROFILE\.codex\config.toml"`（不存在即未安装，勿直接 Select-String）；存在再 `Select-String -Path "$env:USERPROFILE\.codex\config.toml" -Pattern 'CODEX_CLI_PATH'` 取行、按 §2.3 / §15.1 拆出 `.exe` 全路径后 `Test-Path` | `%LOCALAPPDATA%\OpenAI\Codex\bin\<哈希>\codex.exe`（哈希随桌面升级变，**必须**从 `~/.codex/config.toml` 动态取） |
 | **Claude Code** | `where.exe claude`（或 `Test-Path "$env:USERPROFILE\.local\bin\claude.exe"`） | `%USERPROFILE%\.local\bin\claude.exe`（Anthropic 官方 native installer，Windows 形态；mac 形态见下文 macOS 发现链） |
 
-**POSIX 家族实现**（sh / bash / zsh 通用子集；Git Bash (Windows) 实测，zsh 同子集未单独实测；`grep -oP` 为 GNU 扩展（Git Bash / Linux GNU grep 可用；macOS 自带 BSD grep **无 `-P`**，未实测），最小 POSIX sh / macOS BSD grep 兜底用 `sed -n` 一行：
+**POSIX 家族实现**（sh / bash / zsh 通用子集；Git Bash (Windows) + macOS 15 (zsh) 实测；Codex 配置行提取走 quote-agnostic awk，对 Windows 单引号、macOS 双引号都生效）：
 
 ```bash
-# ZCode（资源目录在 Git Bash 下用 POSIX 风格路径变量）
+# ZCode（资源目录在 Git Bash 下用 POSIX 风格路径变量；mac 上需另寻，见下方 macOS 发现链）
 test -f "$LOCALAPPDATA/Programs/ZCode/resources/glm/zcode.cjs" && echo FOUND
 
-# Grok
-test -f "$USERPROFILE/.grok/bin/grok.exe" && echo FOUND
+# Grok（POSIX 下用 $HOME：Git Bash 命中 /c/Users/<user>、macOS 命中 /Users/<user>）
+test -f "$HOME/.grok/bin/grok" && echo FOUND
 
-# Codex：先看 config.toml 存在，再 grep -oP 取 CODEX_CLI_PATH（GNU grep）
-#   macOS BSD grep 无 -P 时，换 sed 兜底（POSIX 通吃，未实测）：
-#     CX=$(sed -n "s/^CODEX_CLI_PATH = '\([^']*\)'.*/\1/p" "$USERPROFILE/.codex/config.toml")
-test -f "$USERPROFILE/.codex/config.toml" && \
-  CX=$(grep -oP "CODEX_CLI_PATH = '\K[^']+" "$USERPROFILE/.codex/config.toml") && \
+# Codex：先看 config.toml 存在，再 awk 取 CODEX_CLI_PATH（quote-agnostic：兼容 Windows 单引号与 macOS 双引号）
+#   grep -oP 为 GNU 等价写法（macOS BSD grep 无 -P）
+test -f "$HOME/.codex/config.toml" && \
+  CX=$(awk -F"['\"]" '/^CODEX_CLI_PATH/ {print $2}' "$HOME/.codex/config.toml") && \
   test -f "$CX"
 
 # Claude Code：command -v 优先（注意无 .exe 后缀）；fallback 直接 stat ~/.local/bin/claude
-command -v claude                                    # → /c/Users/<user>/.local/bin/claude
-test -f "$USERPROFILE/.local/bin/claude.exe"         # Windows 形态兜底（Git Bash on Windows）
+command -v claude                                    # → /c/Users/<user>/.local/bin/claude（Git Bash）/ /Users/<user>/.local/bin/claude（mac）
+test -f "$HOME/.local/bin/claude"                    # macOS 形态兜底（无 .exe 后缀）
 ```
 
 **OS → 家族选择**：
 
 - Windows 原生（PowerShell / pwsh）→ PowerShell 家族；
 - Windows 上的 Git Bash / WSL → POSIX 家族实现（Windows 路径形态，已实测）；
-- Linux / macOS → 不要抄上面两块的具体路径形态——走 `command -v <name>` 的通用发现链（与 macOS 发现链同源），探活命中什么用什么，复验前不当已验证实现。
+- macOS → 可直接抄 POSIX 家族实现（macOS 15 zsh 实测；ZCode 的 mac 资源路径仍未知）；
+- Linux → 不要抄上面两块的具体路径形态——走 `command -v <name>` 的通用发现链（与 macOS 发现链同源），探活命中什么用什么，复验前不当已验证实现。
 
-**macOS 发现链** [仅帮助文档，未实测]：ZCode 在 mac 的可用性未知——按上述 POSIX 家族 probe，结果可能就是"不可用"，如实记。其它三家：`command -v <name>` 优先；候选位置 `~/.local/bin/claude`（Claude Code 官方 native installer 的 mac 形态，**无扩展名**）、`/opt/homebrew/bin`（Apple Silicon Homebrew）、`/usr/local/bin`（Intel Homebrew）；Codex 读 `~/.codex/config.toml` 取 `CODEX_CLI_PATH`（同上）。`command -v grok` 优先；候选 `~/.grok/bin/grok`（mac 二进制一般无 `.exe` 后缀，未确认，先 `test -f` 再用）
+**macOS 发现链** [已实测：`command -v claude` → `~/.local/bin/claude`（Claude Code 2.1.118）、`command -v grok` → `~/.grok/bin/grok`、Codex 取自 `~/.codex/config.toml` 的 `CODEX_CLI_PATH` 指向 `/Applications/Codex.app/Contents/Resources/codex`（入口见 §15.1）；仅帮助文档：Homebrew 候选位置；未知：ZCode 资源路径]：Claude / Grok 走 `command -v <name>` 优先；候选位置 `~/.local/bin/claude`（**无扩展名**）、`/opt/homebrew/bin`（Apple Silicon Homebrew）、`/usr/local/bin`（Intel Homebrew）—— Homebrew 路径 [仅帮助文档]；Codex 仍读 `~/.codex/config.toml` 取 `CODEX_CLI_PATH`。ZCode 在 mac 的可用性未知——按上述 POSIX 家族 probe，结果可能就是"不可用"，如实记
 
 ### 本技能深度文档化的四家
 
@@ -181,7 +182,7 @@ $GRK = "$env:USERPROFILE\.grok\bin\grok.exe"  # §1 探活命中的实际路径
 POSIX（bash / zsh，Git Bash on Windows 实测）：
 
 ```bash
-GRK="$USERPROFILE/.grok/bin/grok.exe"   # §1 探活结果
+GRK="$HOME/.grok/bin/grok"           # §1 探活结果（mac 上无 .exe 后缀，Git Bash 上 §1 POSIX 块示范路径已实测）
 "$GRK" -p "阅读 ./review_task.md 并严格执行其中的任务" \
   --cwd "E:/你的项目" \
   --output-format json \
@@ -211,10 +212,10 @@ $OutputEncoding = [System.Text.Encoding]::UTF8
 #   （resume 不认 --sandbox/-C/--color，沙箱用 -c 覆盖，详见 §15.3）
 ```
 
-POSIX（bash / zsh，Git Bash on Windows 实测）：
+POSIX（bash / zsh，Git Bash (Windows) + macOS 15 (zsh) 实测）：
 
 ```bash
-CX=$(grep -oP "CODEX_CLI_PATH = '\K[^']+" "$USERPROFILE/.codex/config.toml")
+CX=$(awk -F"['\"]" '/^CODEX_CLI_PATH/ {print $2}' "$HOME/.codex/config.toml")  # quote-agnostic（Windows 单引号 / macOS 双引号都吃）
 echo "prompt" | "$CX" exec --skip-git-repo-check --color never --json --sandbox read-only \
   -C "E:/你的项目" -o "$PWD/codex_last.txt" -
 # 最终回答读 codex_last.txt
@@ -227,7 +228,9 @@ echo "prompt" | "$CX" exec --skip-git-repo-check --color never --json --sandbox 
 
 修 bug / 修测试这类**要改文件**的任务，把 `--sandbox` 换成 `workspace-write`，外层超时给足（实战修 13 个测试文件全程 **~35 分钟**，远超只读 review 的 15–20 分钟）：
 
-> ⚠ **沙箱实现按 OS 不同**——Codex 沙箱在 Windows / macOS 是两套机制（`workspace-write` 的可写边界、`--basetemp` 拒写默认 temp 目录这些行为仅在 Windows 实测）；macOS / Linux 上同样传 `--sandbox workspace-write` 不代表行为一致，先用最小可写任务在小分支上验证沙箱边界与 temp 写入策略，再上正式任务。
+> ⚠ **沙箱实现按 OS 不同**——Codex 沙箱在 Windows 与 macOS 是两套机制（Windows 与 macOS 均已实测，行为不同，详见下方 [macOS 特有] 块）；Linux 未实测，先用最小可写任务验证沙箱边界与 temp 写入策略，再上正式任务。
+>
+> **[macOS 特有]** `workspace-write` 在 macOS 下默认**允许**写 `/tmp`（`/tmp` → `/private/tmp` 符号链接，与 Windows 拒写默认 temp 目录相反）；`--basetemp` 在 mac 上的作用是防仓库污染而非防沙箱拒写。Apple seatbelt 拒绝时会把可写根列表返回给模型，模型通常能自我修正（与 Windows 硬拒不同）。
 
 ```powershell
 $CX = (Select-String -Path "$env:USERPROFILE\.codex\config.toml" -Pattern 'CODEX_CLI_PATH').Line.Split("'")[1]
@@ -237,11 +240,10 @@ $OutputEncoding = [System.Text.Encoding]::UTF8   # PS 5.1 必加（§15.2）；�
     -C "E:/目标仓库" -o "$PWD\codex_last.txt" -
 ```
 
-POSIX（bash / zsh，Git Bash on Windows 实测；⚠ 沙箱实现按 OS 不同，见本节上方警示）：
+POSIX（bash / zsh，Git Bash on Windows + macOS 15 (zsh) 实测；⚠ 沙箱实现按 OS 不同，`workspace-write` 默认可写 `/tmp` 这一行为详见本节上方 [macOS 特有] 警示）：
 
 ```bash
-CX=$(grep -oP "CODEX_CLI_PATH = '\K[^']+" "$USERPROFILE/.codex/config.toml")
-# macOS BSD grep 无 -P 时用 sed 兜底，见 §1 POSIX 家族实现
+CX=$(awk -F"['\"]" '/^CODEX_CLI_PATH/ {print $2}' "$HOME/.codex/config.toml")  # quote-agnostic，与 §1 POSIX 家族实现一致
 echo "Read ./repair_task.md and execute it strictly." | "$CX" exec \
   --skip-git-repo-check --color never --json --sandbox workspace-write \
   -C "E:/目标仓库" -o "$PWD/codex_last.txt" -
@@ -304,7 +306,7 @@ if (-not $CL) { $CL = "$env:USERPROFILE\.local\bin\claude.exe" }  # 探活优先
 POSIX（bash / zsh，Git Bash on Windows 实测；mac 上二进制名为 `claude`，无扩展名）：
 
 ```bash
-cd "<目标目录>" && CL=$(command -v claude || echo "$USERPROFILE/.local/bin/claude.exe")  # 探活优先（§1）
+cd "<目标目录>" && CL=$(command -v claude || echo "$HOME/.local/bin/claude")  # 探活优先（§1；mac 上 fallback 为 ~/.local/bin/claude，无扩展名）
 "$CL" -p "阅读 ./review_task.md 并严格执行其中的任务" \
   --output-format json --permission-mode plan --disallowed-tools "Edit,Write,Bash"
 # stdout 是单个 JSON：.result = 最终回答；.session_id 续接须同目录（§16.7）
@@ -409,7 +411,7 @@ zcode -p "你的任务描述" [--cwd <目录>] [其他选项]     # -p 后跟位
 ```bash
 node "$LOCALAPPDATA/Programs/ZCode/resources/glm/zcode.cjs" \
   --prompt "只回复两个字：收到" \
-  --cwd "$USERPROFILE/.zcode/workspace/default"
+  --cwd "$HOME/.zcode/workspace/default"   # §3 探活 / §1 POSIX 家族；mac 上 ZCode 资源路径仍未知（见 §1 macOS 发现链）
 # 输出：收到
 ```
 
@@ -658,18 +660,18 @@ node -e "const c=require(process.env.USERPROFILE+'/.zcode/cli/config.json');cons
 # → OK
 
 # 3. headless 最小运行（真实调用模型，退出码 0）
-node "$ZC" --prompt "只回复两个字：收到" --cwd "$USERPROFILE/.zcode/workspace/default"
+node "$ZC" --prompt "只回复两个字：收到" --cwd "$HOME/.zcode/workspace/default"
 # → 收到
 
 # 4. 位置参数形式 + 附件
 echo "hello from zcode cli test" > /tmp/zcode-skill-test.txt
 node "$ZC" -p "附件文件第一行写了什么？只引用原文" --attach /tmp/zcode-skill-test.txt \
-  --cwd "$USERPROFILE/.zcode/workspace/default"
+  --cwd "$HOME/.zcode/workspace/default"
 # → hello from zcode cli test
 
 # 5. JSON 输出与只读限制
 node "$ZC" --prompt "1+1等于几？只回答数字" --json --disallowed-tools "Edit Write Bash" \
-  --cwd "$USERPROFILE/.zcode/workspace/default"
+  --cwd "$HOME/.zcode/workspace/default"
 # → JSON，其中 "response": "2"
 
 # 6. 未知参数报错与退出码
@@ -952,7 +954,7 @@ const { spawnSync } = require("child_process");
 const path = require("path");
 const os = require("os");
 
-// Windows 形态：~/.grok/bin/grok.exe；mac 形态（按 §1 macOS 发现链，未确认）去掉扩展名
+// Windows 形态：~/.grok/bin/grok.exe；mac 实测为 ~/.grok/bin/grok（无扩展名），以 §1 探活为准
 const GROK = path.join(os.homedir(), ".grok", "bin", process.platform === "win32" ? "grok.exe" : "grok");
 
 const result = spawnSync(GROK, [
@@ -1027,6 +1029,7 @@ Codex CLI 通常由 ChatGPT/Codex 桌面版同步到用户目录；能否 spawn 
 | `...\OpenAI\Codex\bin\<旧哈希>\codex.exe` | 旧版残留 | ❌ 桌面升级后旧哈希目录会在 `bin\` 下残留，均勿依赖 |
 | `%LOCALAPPDATA%\OpenAI\Codex\bin\codex.exe` | 旧副本 | ⚠ 能跑但不是当前版本，不要用 |
 | `C:\Program Files\WindowsApps\OpenAI.Codex*\app\resources\codex.exe` | Microsoft Store 包自带 | ❌ Access is denied（WindowsApps 路径受 Store ACL 保护） |
+| `/Applications/Codex.app/Contents/Resources/codex`（macOS 桌面版 `.app` bundle 内；无哈希目录、无 `.exe`，仍以 `~/.codex/config.toml` 的 `CODEX_CLI_PATH` 取，详见上方 Windows 行说明） | 0.153.1（mac 实测快照） | ✅ [已实测] `--version` / `exec`（read-only / workspace-write / 越界拒写） |
 
 发现当前二进制（桌面升级后哈希会变）：
 
@@ -1080,7 +1083,7 @@ $CX = (Select-String -Path "$env:USERPROFILE\.codex\config.toml" -Pattern 'CODEX
 | `-C, --cd <DIR>` | 工作根 | 真实运行 |
 | `--json` | stdout 打 JSONL 事件 | 真实运行 |
 | `-o, --output-last-message <FILE>` | 最终回答写文件 | 真实运行 |
-| `-s, --sandbox <MODE>` | `read-only` / `workspace-write` / `danger-full-access`。**`-s` 不是 session**；`workspace-write` 修复类任务的坑（venv 漂移 / pytest `--basetemp`）见 §2.4。`[跨平台]` 沙箱实现按 OS 不同（Windows / macOS 两套机制），`workspace-write` 的可写边界与 temp 拒写行为仅在 Windows 实测；macOS / Linux 先用最小任务验证再上正式任务 | 真实运行 |
+| `-s, --sandbox <MODE>` | `read-only` / `workspace-write` / `danger-full-access`。**`-s` 不是 session**；`workspace-write` 修复类任务的坑（venv 漂移 / pytest `--basetemp`）见 §2.4。`[跨平台]` 沙箱实现按 OS 不同（Windows 与 macOS 两套机制，行为不同见 §2.4 [macOS 特有] 块），均已实测；Linux 未实测，先用最小任务验证再上正式任务 | 真实运行 |
 | `-m, --model <MODEL>` | 覆盖默认模型（值由 §1 默认模型怎么查 / §15.1 决定；当前章节唯一保留的 `-m MiniMax-M3` 例子见上文「显式钉死模型」） | 真实运行 |
 | `--ephemeral` | 不落 session 文件 | 真实运行 |
 | `--skip-git-repo-check` | 允许非 git 目录 | 真实运行 |
@@ -1124,8 +1127,9 @@ const path = require("path");
 const os = require("os");
 
 // 哈希目录随桌面升级变化，从 config.toml 动态取（发现方法见 §15.1），不要写死哈希
+// 引号无关（quote-agnostic）：Windows 单引号 / macOS 双引号都命中
 const CX = fs.readFileSync(path.join(os.homedir(), ".codex", "config.toml"), "utf8")
-  .match(/CODEX_CLI_PATH\s*=\s*'([^']+)'/)[1];
+  .match(/CODEX_CLI_PATH\s*=\s*['"]([^'"]+)['"]/)[1];
 const last = path.join(process.cwd(), "codex_last.txt");
 
 const result = spawnSync(CX, [
@@ -1338,6 +1342,7 @@ $SID = ($J1 | ConvertFrom-Json).session_id
 
 - 生成会话与续接必须同 cwd；spawnSync 场景两次都要带同样的 `cwd` 选项（§16.9）。
 - 首轮实测曾把跨目录报错误判为「JSON `session_id` 不能用于 resume」——调用方别被表象带偏，先核对两次调用的目录。
+- session 文件 transcoding：`~/.claude/projects/<cwd 转写>/`，转写规则 = 前导 `/` → `-`，其余 `/` → `-`（其他字符不动）。Windows 实测观测：`E:/CC/ZZ` → `E--CC-ZZ`（`:` 与 `/` 均转为 `-`）。跨平台转写细节未系统验证，以 `ls ~/.claude/projects/` 实查为准。
 - 兜底（**仅帮助文档**）：`-c` 续接当前目录最近一次会话；`-r` 不带 ID 弹交互选择器，headless 不友好。
 
 ### 16.8 与其它三家的差异
@@ -1394,7 +1399,7 @@ if (result.status === 0) {
 ```powershell
 $CL = "$env:USERPROFILE\.local\bin\claude.exe"
 
-# 1. 版本
+# 1. 版本（快照当日值，随版本漂移；以本机 --version 实测为准）
 & $CL --version
 # → 2.1.204 (Claude Code)
 
@@ -1415,8 +1420,9 @@ where.exe claude
 # exit 0
 
 # 6. 续接（两次调用同目录；跨目录会 No conversation found，§16.7）
+# 判据：exit 0 且 session_id 与首次调用一致即通过（不依赖回答内容——模型侧可能拒绝压缩式回答，机制成功 ≠ 回答符合预期）
 $J = & $CL -p "记住暗号：香蕉66号。只回复：记住了" --output-format json --permission-mode plan
 $SID = ($J | ConvertFrom-Json).session_id
 & $CL --resume $SID -p "暗号是什么？只回复暗号本身" --permission-mode plan --output-format json | Select-Object -Last 3
-# → result = 香蕉66号（exit 0；实测 2026-09-03）
+# → exit 0，session_id 与首次调用一致（回答内容随模型版本可能不同）
 ```
