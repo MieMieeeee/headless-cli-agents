@@ -2,7 +2,7 @@
 name: headless-cli-agents
 display-name: ZCode / Grok / Codex / Claude Code 命令行（headless）使用指南
 description: 如何发现本机已安装的 agent CLI，并以无界面（headless）方式调用 ZCode / Grok / Codex / Claude Code，供脚本或其他 agent 做代码审查等任务。先按探活协议确认可用 CLI，再给抄命令模板；后半是各 CLI 的配置、参数、JSON 格式与排错。
-version: 2.0.1
+version: 2.0.2
 author: MieMieeeee
 tags: zcode, grok, codex, claude, CLI, headless, multi-agent, 代码审查, agent协作
 category: 工具使用
@@ -717,6 +717,8 @@ grok --single "你的任务描述" [...]
 }
 ```
 
+程序化取结果先看 `stopReason`：`end_turn` 才是完整结果；`cancelled` 表示服务端中断（退出码仍是 0），恢复姿势见 §14.7 的 ⚠ 块。
+
 ### 14.4 参数清单
 
 #### 14.4.1 实测可用（headless 模式下）
@@ -807,7 +809,13 @@ Error: --effort/--reasoning-effort: unknown effort level 'xxx'; use one of: xhig
 | 成功 | `0` |
 | 未知 flag / `--reasoning-effort none` / cwd 不存在 / 模型错 | `1` |
 | OIDC token 过期未带 API key | `1`（stderr 给 reauth 提示） |
+| **服务端中断（`stopReason: cancelled`）** | **也是 `0`**——见下方 ⚠ |
+| API 5xx（容量 / 高负载） | `1`（stderr 有 `API error (status 500...)`，可等 1–2 分钟重试） |
 | 外层 timeout 强杀 | 跟随 shell（signal-based），spawnSync 拿 `result.signal` |
+
+> ⚠ **exit 0 ≠ 成功完成** [已实测，2026-09-03]：长 agentic 任务在 xAI 高负载时段可能被服务端中断流式响应，此时 CLI 退出码是 `0`、JSON 的 `stopReason` 是 `cancelled` 而非 `end_turn`，`text` 里只有中途叙述、没有最终报告。**程序化取结果必须检查 `stopReason == "end_turn"`，不能只看退出码**，否则会静默拿到半截输出。
+>
+> **恢复姿势（实测两次有效）**：被取消的运行里已完成的工作不丢（session 文件保留全部工具结果）。用 `-r <sessionId>` 续接，配一句"不要再读文件，基于已看过的内容直接输出最终报告"，1 轮即可拿到报告（恢复成本 ~$0.02–0.04/次）。若续接撞上 `API error (status 500 ... at capacity)`，等 1–2 分钟重试同一 `-r` 命令即可。长审核任务想降低中断暴露面，可由调用方预生成 diff / 材料文件让 Grok 只读不跑，减少工具轮次。
 
 ### 14.8 与 ZCode headless 的关键差异
 
