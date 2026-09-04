@@ -2,7 +2,7 @@
 name: headless-cli-agents
 display-name: ZCode / Grok / Codex / Claude Code 命令行（headless）使用指南
 description: 如何发现本机已安装的 agent CLI，并以无界面（headless）方式调用 ZCode / Grok / Codex / Claude Code，供脚本或其他 agent 做代码审查等任务。先按探活协议确认可用 CLI，再给抄命令模板；后半是各 CLI 的配置、参数、JSON 格式与排错。
-version: 2.3.0
+version: 2.3.1
 author: MieMieeeee
 tags: zcode, grok, codex, claude, CLI, headless, multi-agent, 代码审查, agent协作
 category: 工具使用
@@ -47,7 +47,6 @@ test -f "$LOCALAPPDATA/Programs/ZCode/resources/glm/zcode.cjs" && echo FOUND
 test -f "$HOME/.grok/bin/grok" && echo FOUND
 
 # Codex：先看 config.toml 存在，再 awk 取 CODEX_CLI_PATH（quote-agnostic：兼容 Windows 单引号与 macOS 双引号）
-#   grep -oP 为 GNU 等价写法（macOS BSD grep 无 -P）
 test -f "$HOME/.codex/config.toml" && \
   CX=$(awk -F"['\"]" '/^CODEX_CLI_PATH/ {print $2}' "$HOME/.codex/config.toml") && \
   test -f "$CX"
@@ -230,7 +229,7 @@ echo "prompt" | "$CX" exec --skip-git-repo-check --color never --json --sandbox 
 
 > ⚠ **沙箱实现按 OS 不同**——Codex 沙箱在 Windows 与 macOS 是两套机制（Windows 与 macOS 均已实测，行为不同，详见下方 [macOS 特有] 块）；Linux 未实测，先用最小可写任务验证沙箱边界与 temp 写入策略，再上正式任务。
 >
-> **[macOS 特有]** `workspace-write` 在 macOS 下默认**允许**写 `/tmp`（`/tmp` → `/private/tmp` 符号链接，与 Windows 拒写默认 temp 目录相反）；`--basetemp` 在 mac 上的作用是防仓库污染而非防沙箱拒写。Apple seatbelt 拒绝时会把可写根列表返回给模型，模型通常能自我修正（与 Windows 硬拒不同）。
+> **[macOS 特有]** `workspace-write` 在 macOS 下默认允许写 `-C` 工作根与 `/tmp`（`/tmp` → `/private/tmp` 符号链接，两条路径都在可写根里，与 Windows 拒写默认 temp 目录相反）；`--basetemp` 在 mac 上的作用是防仓库污染而非防沙箱拒写。Apple seatbelt 拒绝时会把可写根列表返回给模型，模型通常能自我修正（与 Windows 硬拒不同）。
 
 ```powershell
 $CX = (Select-String -Path "$env:USERPROFILE\.codex\config.toml" -Pattern 'CODEX_CLI_PATH').Line.Split("'")[1]
@@ -303,7 +302,7 @@ if (-not $CL) { $CL = "$env:USERPROFILE\.local\bin\claude.exe" }  # 探活优先
 #   只读必须靠 --permission-mode plan
 ```
 
-POSIX（bash / zsh，Git Bash on Windows 实测；mac 上二进制名为 `claude`，无扩展名）：
+POSIX（bash / zsh，Git Bash (Windows) + macOS 15 (zsh) 实测；mac 二进制名 `claude` 无扩展名）：
 
 ```bash
 cd "<目标目录>" && CL=$(command -v claude || echo "$HOME/.local/bin/claude")  # 探活优先（§1；mac 上 fallback 为 ~/.local/bin/claude，无扩展名）
@@ -1029,7 +1028,7 @@ Codex CLI 通常由 ChatGPT/Codex 桌面版同步到用户目录；能否 spawn 
 | `...\OpenAI\Codex\bin\<旧哈希>\codex.exe` | 旧版残留 | ❌ 桌面升级后旧哈希目录会在 `bin\` 下残留，均勿依赖 |
 | `%LOCALAPPDATA%\OpenAI\Codex\bin\codex.exe` | 旧副本 | ⚠ 能跑但不是当前版本，不要用 |
 | `C:\Program Files\WindowsApps\OpenAI.Codex*\app\resources\codex.exe` | Microsoft Store 包自带 | ❌ Access is denied（WindowsApps 路径受 Store ACL 保护） |
-| `/Applications/Codex.app/Contents/Resources/codex`（macOS 桌面版 `.app` bundle 内；无哈希目录、无 `.exe`，仍以 `~/.codex/config.toml` 的 `CODEX_CLI_PATH` 取，详见上方 Windows 行说明） | 0.153.1（mac 实测快照） | ✅ [已实测] `--version` / `exec`（read-only / workspace-write / 越界拒写） |
+| `/Applications/Codex.app/Contents/Resources/codex`（macOS 桌面版 `.app` bundle 内；无哈希目录、无 `.exe`，仍以 `~/.codex/config.toml` 的 `CODEX_CLI_PATH` 取（macOS 抄 §1 POSIX 家族实现的 awk 一行，或 §2.3 POSIX 模板）） | 以 `--version` 实查（mac 实测时 0.153.1） | ✅ [已实测] `--version` / `exec`（read-only / workspace-write / 越界拒写） |
 
 发现当前二进制（桌面升级后哈希会变）：
 
@@ -1342,7 +1341,7 @@ $SID = ($J1 | ConvertFrom-Json).session_id
 
 - 生成会话与续接必须同 cwd；spawnSync 场景两次都要带同样的 `cwd` 选项（§16.9）。
 - 首轮实测曾把跨目录报错误判为「JSON `session_id` 不能用于 resume」——调用方别被表象带偏，先核对两次调用的目录。
-- session 文件 transcoding：`~/.claude/projects/<cwd 转写>/`，转写规则 = 前导 `/` → `-`，其余 `/` → `-`（其他字符不动）。Windows 实测观测：`E:/CC/ZZ` → `E--CC-ZZ`（`:` 与 `/` 均转为 `-`）。跨平台转写细节未系统验证，以 `ls ~/.claude/projects/` 实查为准。
+- session 文件 transcoding：`~/.claude/projects/<cwd 转写>/`，转写规则（由 macOS 与 Windows 各一例观测归纳，未系统验证）：路径分隔符转 `-`——macOS 的 `/`；Windows 下 `/` 与盘符 `:` 均转。示例：`/private/tmp/claude_test_a` → `-private-tmp-claude-test-a`；`E:/CC/ZZ` → `E--CC-ZZ`。以 `ls ~/.claude/projects/` 实查为准。
 - 兜底（**仅帮助文档**）：`-c` 续接当前目录最近一次会话；`-r` 不带 ID 弹交互选择器，headless 不友好。
 
 ### 16.8 与其它三家的差异
