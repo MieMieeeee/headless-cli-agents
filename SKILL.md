@@ -2,7 +2,7 @@
 name: headless-cli-agents
 display-name: ZCode / Grok / Codex / Claude Code 命令行（headless）使用指南
 description: 如何发现本机已安装的 agent CLI，并以无界面（headless）方式调用 ZCode / Grok / Codex / Claude Code，供脚本或其他 agent 做代码审查等任务。先按探活协议确认可用 CLI，再给抄命令模板；后半是各 CLI 的配置、参数、JSON 格式与排错。
-version: 2.1.0
+version: 2.2.0
 author: MieMieeeee
 tags: zcode, grok, codex, claude, CLI, headless, multi-agent, 代码审查, agent协作
 category: 工具使用
@@ -106,11 +106,24 @@ test -f "$USERPROFILE/.local/bin/claude.exe"         # Windows 形态兜底（Gi
 统一约定（四家都适用）：
 
 1. 复杂要求写成工作目录里的 `review_task.md`，命令行只留一句短指令（两跳；ZCode 细述见 §5.2）。ZCode / Grok 用 `--cwd`，Codex 用 `-C`，Claude Code 没有 `--cwd` flag（走 spawnSync 的 `cwd` 选项）。
-2. 只读 review，禁止改文件。修复类等**要改文件**的任务走 Codex `--sandbox workspace-write`，模板与坑见 §2.5。
-3. 程序化调用分管道 stdout/stderr，调大 maxBuffer，超时 15–20 分钟（修复类任务更长，实测 ~35 分钟，见 §2.5）。
+2. 只读 review，禁止改文件。修复类等**要改文件**的任务走 Codex `--sandbox workspace-write`，模板与坑见 §2.4。
+3. 程序化调用分管道 stdout/stderr，调大 maxBuffer，超时 15–20 分钟（修复类任务更长，实测 ~35 分钟，见 §2.4）。
 4. 两跳的任务文件含中文时，**用 UTF-8 带 BOM 保存，或干脆写英文**：Codex 用它的 shell 工具读 UTF-8 无 BOM 中文文件会按 GBK 解码成乱码，带着乱码执行必然跑偏（实测坑，详见 §15.2）。`[Windows 特有]`（POSIX 默认 UTF-8 基本不踩；§15.2 已有细节）
+5. 若用 Node.js (spawnSync) 驱动，**必须**显式设 `maxBuffer ≥ 64MB`——默认约 1MB 会**静默截断**大报告（详见 §13.3）。
+6. 纯审查任务**必须**依赖各家 plan / read-only 权限模式（`--mode plan` / `--permission-mode plan` / `--sandbox read-only`）；`--disallowed-tools` 工具黑名单仅作辅助——实测 Grok --disallowed-tools 只写 `Bash` 拦不住（echo 照跑，§14.4.1）；Claude Code 禁 `"Edit,Write,Bash"` 组合（bypassPermissions 下）也拦不住（§16.4）。
 
-PowerShell 抄 §2.1–§2.3 / §2.6 这四条（修复类任务用 §2.5）。
+PowerShell 抄 §2.1 / §2.2 / §2.3 / §2.5 这四条（先看 §2 四家最小对照挑哪家，修复类任务用 §2.4 修复模板；§2.1 / §2.2 / §2.3 / §2.4 / §2.5 双 shell）。
+
+### 四家最小对照
+
+| 项 | ZCode | Grok | Codex | Claude Code |
+|---|---|---|---|---|
+| 工作目录 | `--cwd` | `--cwd` | `-C` / `--cd` | spawnSync 的 `cwd` 选项（无 `--cwd` flag） |
+| JSON | 单个对象 `response` | 单个对象 `text`（stderr 有 WARN） | **JSONL** + `-o` 文件 | 单个对象 `result` |
+| 只读 | `--mode plan` + `--disallowed-tools "Edit Write Bash"` | `--permission-mode plan` + `--disallowed-tools "Edit,Write,..."`（逗号） | `--sandbox read-only`（无 disallowed-tools） | `--permission-mode plan` + `--disallowed-tools "Edit,Write,Bash"` |
+| 续接 | `--resume sess_xxx` | `-r <sessionId>` | `exec resume <thread_id>` | `--resume <session_id>`（同目录实测可用，§16.7） |
+| 默认模型 | 见 §1 默认模型怎么查 | 见 §1 默认模型怎么查 | 见 §1 默认模型怎么查 | 见 §1 默认模型怎么查 |
+| 无人值守批准 | headless 默认 yolo | **必须** `--always-approve` | 看 `~/.codex/config.toml` 的 `approval_policy` 实际值；不要给 `exec` 传 `--ask-for-approval`（clap 直接 exit 2） | headless `-p` 默认自动批准；只读场景显式 `--permission-mode plan` |
 
 ### Shell 家族翻译对照
 
@@ -126,13 +139,13 @@ PowerShell 抄 §2.1–§2.3 / §2.6 这四条（修复类任务用 §2.5）。
 | `"s" \| cmd` | `echo "s" \| cmd` | **管道字符串语法不互通**——PS 的字符串管道在 bash 无效，反之亦然 |
 | `$OutputEncoding = [System.Text.Encoding]::UTF8` | 默认 UTF-8 | PS 5.1 必须显式设；POSIX 默认 UTF-8，无此问题 |
 
-Shell 家族在 §1 的发现手段与 §2.1–§2.3 / §2.5 / §2.6 各小节内均按「PowerShell:」/「POSIX（bash / zsh）:」分别给出，调用方按当前主机的 shell 家族直接抄对应代码块即可。
+Shell 家族在 §1 的发现手段与 §2.1 / §2.2 / §2.3 / §2.4 / §2.5 各小节内均按「PowerShell:」/「POSIX（bash / zsh）:」分别给出，调用方按当前主机的 shell 家族直接抄对应代码块即可。
 
 ### 2.1 ZCode（只读 review）
 
 ```powershell
-node "$env:LOCALAPPDATA\Programs\ZCode\resources\glm\zcode.cjs" `
-  --prompt "阅读 ./review_task.md 并严格执行其中的任务" `
+$ZC = "$env:LOCALAPPDATA\Programs\ZCode\resources\glm\zcode.cjs"  # §1 探活命中的实际路径；装在别处就改成别处
+node "$ZC" --prompt "阅读 ./review_task.md 并严格执行其中的任务" `
   --cwd "E:/你的项目" `
   --json `
   --mode plan `
@@ -143,8 +156,8 @@ node "$env:LOCALAPPDATA\Programs\ZCode\resources\glm\zcode.cjs" `
 POSIX（bash / zsh，Git Bash on Windows 实测）：
 
 ```bash
-node "$LOCALAPPDATA/Programs/ZCode/resources/glm/zcode.cjs" \
-  --prompt "阅读 ./review_task.md 并严格执行其中的任务" \
+ZC="$LOCALAPPDATA/Programs/ZCode/resources/glm/zcode.cjs"   # §1 探活结果
+node "$ZC" --prompt "阅读 ./review_task.md 并严格执行其中的任务" \
   --cwd "E:/你的项目" \
   --json \
   --mode plan \
@@ -155,8 +168,8 @@ node "$LOCALAPPDATA/Programs/ZCode/resources/glm/zcode.cjs" \
 ### 2.2 Grok（只读 review）
 
 ```powershell
-& "$env:USERPROFILE\.grok\bin\grok.exe" `
-  -p "阅读 ./review_task.md 并严格执行其中的任务" `
+$GRK = "$env:USERPROFILE\.grok\bin\grok.exe"  # §1 探活命中的实际路径
+& $GRK -p "阅读 ./review_task.md 并严格执行其中的任务" `
   --cwd "E:/你的项目" `
   --output-format json `
   --always-approve `
@@ -168,8 +181,8 @@ node "$LOCALAPPDATA/Programs/ZCode/resources/glm/zcode.cjs" \
 POSIX（bash / zsh，Git Bash on Windows 实测）：
 
 ```bash
-"$USERPROFILE/.grok/bin/grok.exe" \
-  -p "阅读 ./review_task.md 并严格执行其中的任务" \
+GRK="$USERPROFILE/.grok/bin/grok.exe"   # §1 探活结果
+"$GRK" -p "阅读 ./review_task.md 并严格执行其中的任务" \
   --cwd "E:/你的项目" \
   --output-format json \
   --always-approve \
@@ -207,20 +220,10 @@ echo "prompt" | "$CX" exec --skip-git-repo-check --color never --json --sandbox 
 # 最终回答读 codex_last.txt
 # resume 等价一行（resume 不认 --sandbox/-C/--color，详见 §15.3）：
 #   echo "追问内容" | "$CX" exec resume <thread_id> - --skip-git-repo-check --json -o last2.txt
+# 沙箱用 -c 'sandbox_mode="read-only"' 覆盖（同 PowerShell 块）
 ```
 
-### 2.4 四家最小对照
-
-| 项 | ZCode | Grok | Codex | Claude Code |
-|---|---|---|---|
-| 工作目录 | `--cwd` | `--cwd` | `-C` / `--cd` | spawnSync 的 `cwd` 选项（无 `--cwd` flag） |
-| JSON | 单个对象 `response` | 单个对象 `text`（stderr 有 WARN） | **JSONL** + `-o` 文件 | 单个对象 `result` |
-| 只读 | `--mode plan` + `--disallowed-tools "Edit Write Bash"` | `--permission-mode plan` + `--disallowed-tools "Edit,Write,..."`（逗号） | `--sandbox read-only`（无 disallowed-tools） | `--permission-mode plan` + `--disallowed-tools "Edit,Write,Bash"` |
-| 续接 | `--resume sess_xxx` | `-r <sessionId>` | `exec resume <thread_id>` | `--resume <session_id>`（同目录实测可用，§16.7） |
-| 默认模型 | 见 §1 默认模型怎么查 | 见 §1 默认模型怎么查 | 见 §1 默认模型怎么查 | 见 §1 默认模型怎么查 |
-| 无人值守批准 | headless 默认 yolo | **必须** `--always-approve` | 看 `~/.codex/config.toml` 的 `approval_policy` 实际值；不要给 `exec` 传 `--ask-for-approval`（clap 直接 exit 2） | headless `-p` 默认自动批准；只读场景显式 `--permission-mode plan` |
-
-### 2.5 Codex 修复类任务（workspace-write）[外部实战验证，2026-09-03]
+### 2.4 Codex 修复类任务（workspace-write）[外部实战验证，2026-09-03]
 
 修 bug / 修测试这类**要改文件**的任务，把 `--sandbox` 换成 `workspace-write`，外层超时给足（实战修 13 个测试文件全程 **~35 分钟**，远超只读 review 的 15–20 分钟）：
 
@@ -281,26 +284,28 @@ echo "Read ./repair_task.md and execute it strictly." | "$CX" exec \
 - 量级参考：修 13 个测试文件 ~35 分钟 / 数百事件 / exit 0 / 最终回答 ~400 字 / 报告 18.5KB 落在 `-o` 文件。§13 的耗时经验对 Codex 大致适用。
 - 若漏写约束，Codex 会在目标仓库里自建 venv（`.test_venv_new/`）和 `tests/.pytest_tmp/` 污染仓库；后者可能被句柄锁死（`rm -rf` 报 Permission denied，重启才能删）。事后要 `git status` 检查并清理这些产物。
 
-### 2.6 Claude Code（只读 review）
+### 2.5 Claude Code（只读 review）
 
 Claude Code 与 §2.1–§2.3 同为两跳：任务写文件，命令行只留一句短指令。只读模式走 `--permission-mode plan`（实测可用，~7.3s 回 `READ_ONLY_OK`，exit 0；与 Grok 的 `--permission-mode plan` 同名同语义，详见 §16）。
 
 ```powershell
 Set-Location "E:/你的项目"   # Claude Code 没有 --cwd；shell 用例先切目录，详见 §16.3 / §16.9
-& "$env:USERPROFILE\.local\bin\claude.exe" `
-  -p "阅读 ./review_task.md 并严格执行其中的任务" `
+$CL = (Get-Command claude -ErrorAction SilentlyContinue).Source
+if (-not $CL) { $CL = "$env:USERPROFILE\.local\bin\claude.exe" }  # 探活优先，fallback 典型位置（§1）
+& $CL -p "阅读 ./review_task.md 并严格执行其中的任务" `
   --output-format json `
   --permission-mode plan `
   --disallowed-tools "Edit,Write,Bash"
 # stdout 是单个 JSON：.result = 最终回答，.session_id 给 --resume（两次调用须同目录，§16.7）。
-# ⚠ 实测（2026-09-03）：--disallowed-tools 单写 "Bash" 禁不住终端（Grok 与 Claude Code 均实测翻车），
-#   只读必须靠 --permission-mode plan（§14.4.1 / §16.4）
+# ⚠ 实测（2026-09-03）：Grok --disallowed-tools 只写 `Bash` 拦不住（echo 照跑，§14.4.1）；Claude Code 禁 `"Edit,Write,Bash"` 组合（bypassPermissions 下）也拦不住（§16.4）。
+#   只读必须靠 --permission-mode plan
 ```
 
 POSIX（bash / zsh，Git Bash on Windows 实测；mac 上二进制名为 `claude`，无扩展名）：
 
 ```bash
-cd "<目标目录>" && claude -p "阅读 ./review_task.md 并严格执行其中的任务" \
+cd "<目标目录>" && CL=$(command -v claude || echo "$USERPROFILE/.local/bin/claude.exe")  # 探活优先（§1）
+"$CL" -p "阅读 ./review_task.md 并严格执行其中的任务" \
   --output-format json --permission-mode plan --disallowed-tools "Edit,Write,Bash"
 # stdout 是单个 JSON：.result = 最终回答；.session_id 续接须同目录（§16.7）
 ```
@@ -1036,7 +1041,7 @@ Select-String -Path "$env:USERPROFILE\.codex\config.toml" -Pattern 'CODEX_CLI_PA
 > ⚠ **中文编码坑有两层，是两个不同的失败面，对策不同**：
 >
 > 1. **stdin 层：PS 5.1 管道喂中文变 `???`** [已实测]：PS 5.1 的 `$OutputEncoding` 默认 ASCII，`"中文prompt" | & $CX exec ... -` 到模型端全是问号（模型会直说"我只能看到问号"）；pwsh 7 与 Git Bash 均正常。PS 5.1 里先 `$OutputEncoding = [System.Text.Encoding]::UTF8` 再管道；读 `-o` 输出文件时配 `Get-Content -Encoding UTF8`。`[Windows 特有]`
-> 2. **读盘层：Codex 的 shell 工具读 UTF-8 无 BOM 中文文件按 GBK 解码成乱码** [外部实战，2026-09-03]：stdin 环节完全正常（它正确理解短指令并去读任务文件），坏在 Codex 自己 spawn 的 pwsh（实测环境 7.6.5）用 `Get-Content` 读盘：`任务：修复` → `浠诲姟锛氫慨澶`（典型 UTF-8 字节按 GBK 解码）。它带着乱码任务继续执行必然跑偏，只能终止重派。pwsh 文档口径是默认 utf8NoBOM、实测不符（可能受本机 profile / 控制台代码页影响，机制未深挖）。**对策：两跳的任务文件用英文（ASCII）书写，或存成 UTF-8 带 BOM**；修复类任务文件加编码防护约束并让调用方事后扫 diff（模板见 §2.5）。`[Windows 特有]`（GBK 读盘乱码 + Codex shell 工具默认用 Windows 形态 pwsh；POSIX 默认 UTF-8 环境基本不踩此坑）
+> 2. **读盘层：Codex 的 shell 工具读 UTF-8 无 BOM 中文文件按 GBK 解码成乱码** [外部实战，2026-09-03]：stdin 环节完全正常（它正确理解短指令并去读任务文件），坏在 Codex 自己 spawn 的 pwsh（实测环境 7.6.5）用 `Get-Content` 读盘：`任务：修复` → `浠诲姟锛氫慨澶`（典型 UTF-8 字节按 GBK 解码）。它带着乱码任务继续执行必然跑偏，只能终止重派。pwsh 文档口径是默认 utf8NoBOM、实测不符（可能受本机 profile / 控制台代码页影响，机制未深挖）。**对策：两跳的任务文件用英文（ASCII）书写，或存成 UTF-8 带 BOM**；修复类任务文件加编码防护约束并让调用方事后扫 diff（模板见 §2.4）。`[Windows 特有]`（GBK 读盘乱码 + Codex shell 工具默认用 Windows 形态 pwsh；POSIX 默认 UTF-8 环境基本不踩此坑）
 >    一键复现：`echo '读取 x.md 并原样引用第一行' | & $CX exec --skip-git-repo-check --json --sandbox read-only -C <目录> -`，x.md 为 UTF-8 无 BOM 中文文件，观察 JSONL 里 command_execution 的 aggregated_output 是否乱码。
 
 ```powershell
@@ -1075,7 +1080,7 @@ $CX = (Select-String -Path "$env:USERPROFILE\.codex\config.toml" -Pattern 'CODEX
 | `-C, --cd <DIR>` | 工作根 | 真实运行 |
 | `--json` | stdout 打 JSONL 事件 | 真实运行 |
 | `-o, --output-last-message <FILE>` | 最终回答写文件 | 真实运行 |
-| `-s, --sandbox <MODE>` | `read-only` / `workspace-write` / `danger-full-access`。**`-s` 不是 session**；`workspace-write` 修复类任务的坑（venv 漂移 / pytest `--basetemp`）见 §2.5。`[跨平台]` 沙箱实现按 OS 不同（Windows / macOS 两套机制），`workspace-write` 的可写边界与 temp 拒写行为仅在 Windows 实测；macOS / Linux 先用最小任务验证再上正式任务 | 真实运行 |
+| `-s, --sandbox <MODE>` | `read-only` / `workspace-write` / `danger-full-access`。**`-s` 不是 session**；`workspace-write` 修复类任务的坑（venv 漂移 / pytest `--basetemp`）见 §2.4。`[跨平台]` 沙箱实现按 OS 不同（Windows / macOS 两套机制），`workspace-write` 的可写边界与 temp 拒写行为仅在 Windows 实测；macOS / Linux 先用最小任务验证再上正式任务 | 真实运行 |
 | `-m, --model <MODEL>` | 覆盖默认模型（值由 §1 默认模型怎么查 / §15.1 决定；当前章节唯一保留的 `-m MiniMax-M3` 例子见上文「显式钉死模型」） | 真实运行 |
 | `--ephemeral` | 不落 session 文件 | 真实运行 |
 | `--skip-git-repo-check` | 允许非 git 目录 | 真实运行 |
@@ -1108,7 +1113,7 @@ $CX = (Select-String -Path "$env:USERPROFILE\.codex\config.toml" -Pattern 'CODEX
 
 ### 15.5 与 ZCode / Grok 的差异
 
-见 §2.4。额外：Codex 没有 `--attach`、没有 `--disallowed-tools`；大文档同样 `-C` 自读（沿用 §5.1）。PowerShell 长 prompt 必须 stdin，`Start-Process -ArgumentList` 会把 `Reply with only...` 拆成多个 argv。`[Windows 特有]`
+见 §2 四家最小对照。额外：Codex 没有 `--attach`、没有 `--disallowed-tools`；大文档同样 `-C` 自读（沿用 §5.1）。PowerShell 长 prompt 必须 stdin，`Start-Process -ArgumentList` 会把 `Reply with only...` 拆成多个 argv。`[Windows 特有]`
 
 ### 15.6 最小 spawnSync 范例（Node）
 
