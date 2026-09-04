@@ -42,7 +42,7 @@ Get-Content "$env:TEMP\codex-last.txt"   # → OK
 
 [已实测] 结论验证于 2026-09-03：zcode 0.16.5 / Grok CLI 1.0.5 / Codex CLI 0.153.0-alpha.5 / Claude Code 2.1.204（Windows 11, build 26200）. 本技能不设版本门槛；版本不同时结论可能漂移，按 SKILL.md §1 的发现方法与各章自检清单重新验证.
 
-验证环境: Windows 11 (win32 10.0.26200 x64), Node v24.5.0, Git Bash / PowerShell. 其它环境结论未验证.
+验证环境: Windows 11 (win32 10.0.26200 x64), Node v24.5.0, Git Bash / PowerShell. 验证基准覆盖 Windows（PowerShell）+ Git Bash 实测的 POSIX 子集; macOS / Linux 未实测, 按 SKILL.md §1 的发现方法与各章自检清单在本机复验. 带平台标签的坑 (`[Windows 特有]` / `[跨平台]`) 按标签识别适用面.
 
 ## License
 

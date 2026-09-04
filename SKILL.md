@@ -2,7 +2,7 @@
 name: headless-cli-agents
 display-name: ZCode / Grok / Codex / Claude Code 命令行（headless）使用指南
 description: 如何发现本机已安装的 agent CLI，并以无界面（headless）方式调用 ZCode / Grok / Codex / Claude Code，供脚本或其他 agent 做代码审查等任务。先按探活协议确认可用 CLI，再给抄命令模板；后半是各 CLI 的配置、参数、JSON 格式与排错。
-version: 2.0.2
+version: 2.1.0
 author: MieMieeeee
 tags: zcode, grok, codex, claude, CLI, headless, multi-agent, 代码审查, agent协作
 category: 工具使用
@@ -13,6 +13,7 @@ category: 工具使用
 给**其他 agent / 脚本**看的调用手册：先看 §1 有哪些 CLI，再抄 §2 的命令。ZCode / Grok / Codex / Claude Code 的细参数分别在 §3–§13 / §14 / §15 / **§16**。
 
 - 本文所有 [已实测] 结论验证于 2026-09-03：zcode 0.16.5 / Grok CLI 1.0.5 / Codex CLI 0.153.0-alpha.5 / Claude Code 2.1.204（Windows 11, build 26200）。本技能**不设版本门槛**；版本不同时结论可能漂移，按 §1 的发现方法与各章自检清单重新验证。各章自检清单里的「期望输出」同样是当日快照，随本机与版本而变，不是合格标准。
+- 适用范围：**知识层**（CLI 行为 / JSON 字段 / exit code / resume 协议 / stopReason 语义 / 恢复姿势）预期跨 OS 与 shell 通用；**环境层**（探活路径 / 安装位置 / 模板 shell 形态）当前验证基准 = Windows（PowerShell）+ Git Bash 实测的 POSIX 子集，macOS / Linux 未实测，按 §1 的发现方法与各章自检清单在本机复验。带平台标签的坑（`[Windows 特有]` / `[跨平台]`）按标签识别适用面。
 - 验证环境：Windows 11 (win32 10.0.26200 x64)，Node v24.5.0，Git Bash / PowerShell
 - 标注图例：**[已实测]** = 技能方在本机验证通过；**[外部实测]** = 验证 agent 实战数据；**[仅帮助文档]** = 来自 `--help` 输出、未实测；**[实测不可用]** = 当前版本拒绝，勿用
 
@@ -22,14 +23,47 @@ category: 工具使用
 
 ### 通用发现手段
 
-Agent CLIs 通常由桌面版 / native installer 部署——短名可能完全不在 PATH，可能指向过期副本，可能与多个已装版本互相覆盖。**永远不要信任短名；先按下面探活用 `Test-Path` / `where.exe` / 读 `config.toml` 拿全路径再 spawn**。逐家探活用：
+Agent CLIs 通常由桌面版 / native installer 部署——短名可能完全不在 PATH，可能指向过期副本，可能与多个已装版本互相覆盖。**永远不要信任短名；先按下面探活用 `Test-Path` / `where.exe` / 读 `config.toml` 拿全路径再 spawn**。`[跨平台]`（核心发现规则不依赖 shell）
+
+**推导规则（shell 无关，4 步）**：① 文件存在性检查（`Test-Path` / `test -f`）→ ② 读配置源（`~/.codex/config.toml` 取 `CODEX_CLI_PATH` 等）→ ③ 拼出二进制全路径 → ④ 验证可执行（`--version`）后使用。调用方先按当前主机的 shell 家族再抄对应实现。
+
+**PowerShell 家族实现**（Windows 原生 PowerShell / pwsh；已有表格保留，标注家族）：
 
 | CLI | 探活命令 | 典型安装位置 |
 |---|---|---|
 | **ZCode** | `Test-Path "$env:LOCALAPPDATA\Programs\ZCode\resources\glm\zcode.cjs"` | 同左（ZCode 桌面版自带） |
 | **Grok** | `Test-Path "$env:USERPROFILE\.grok\bin\grok.exe"` | 同左（xAI 官方 native installer） |
 | **Codex** | 先 `Test-Path "$env:USERPROFILE\.codex\config.toml"`（不存在即未安装，勿直接 Select-String）；存在再 `Select-String -Path "$env:USERPROFILE\.codex\config.toml" -Pattern 'CODEX_CLI_PATH'` 取行、按 §2.3 / §15.1 拆出 `.exe` 全路径后 `Test-Path` | `%LOCALAPPDATA%\OpenAI\Codex\bin\<哈希>\codex.exe`（哈希随桌面升级变，**必须**从 `~/.codex/config.toml` 动态取） |
-| **Claude Code** | `where.exe claude`（或 `Test-Path "$env:USERPROFILE\.local\bin\claude.exe"`） | `%USERPROFILE%\.local\bin\claude.exe`（Anthropic 官方 native installer） |
+| **Claude Code** | `where.exe claude`（或 `Test-Path "$env:USERPROFILE\.local\bin\claude.exe"`） | `%USERPROFILE%\.local\bin\claude.exe`（Anthropic 官方 native installer，Windows 形态；mac 形态见下文 macOS 发现链） |
+
+**POSIX 家族实现**（sh / bash / zsh 通用子集；Git Bash (Windows) 实测，zsh 同子集未单独实测；`grep -oP` 为 GNU 扩展（Git Bash / Linux GNU grep 可用；macOS 自带 BSD grep **无 `-P`**，未实测），最小 POSIX sh / macOS BSD grep 兜底用 `sed -n` 一行：
+
+```bash
+# ZCode（资源目录在 Git Bash 下用 POSIX 风格路径变量）
+test -f "$LOCALAPPDATA/Programs/ZCode/resources/glm/zcode.cjs" && echo FOUND
+
+# Grok
+test -f "$USERPROFILE/.grok/bin/grok.exe" && echo FOUND
+
+# Codex：先看 config.toml 存在，再 grep -oP 取 CODEX_CLI_PATH（GNU grep）
+#   macOS BSD grep 无 -P 时，换 sed 兜底（POSIX 通吃，未实测）：
+#     CX=$(sed -n "s/^CODEX_CLI_PATH = '\([^']*\)'.*/\1/p" "$USERPROFILE/.codex/config.toml")
+test -f "$USERPROFILE/.codex/config.toml" && \
+  CX=$(grep -oP "CODEX_CLI_PATH = '\K[^']+" "$USERPROFILE/.codex/config.toml") && \
+  test -f "$CX"
+
+# Claude Code：command -v 优先（注意无 .exe 后缀）；fallback 直接 stat ~/.local/bin/claude
+command -v claude                                    # → /c/Users/<user>/.local/bin/claude
+test -f "$USERPROFILE/.local/bin/claude.exe"         # Windows 形态兜底（Git Bash on Windows）
+```
+
+**OS → 家族选择**：
+
+- Windows 原生（PowerShell / pwsh）→ PowerShell 家族；
+- Windows 上的 Git Bash / WSL → POSIX 家族实现（Windows 路径形态，已实测）；
+- Linux / macOS → 不要抄上面两块的具体路径形态——走 `command -v <name>` 的通用发现链（与 macOS 发现链同源），探活命中什么用什么，复验前不当已验证实现。
+
+**macOS 发现链** [仅帮助文档，未实测]：ZCode 在 mac 的可用性未知——按上述 POSIX 家族 probe，结果可能就是"不可用"，如实记。其它三家：`command -v <name>` 优先；候选位置 `~/.local/bin/claude`（Claude Code 官方 native installer 的 mac 形态，**无扩展名**）、`/opt/homebrew/bin`（Apple Silicon Homebrew）、`/usr/local/bin`（Intel Homebrew）；Codex 读 `~/.codex/config.toml` 取 `CODEX_CLI_PATH`（同上）。`command -v grok` 优先；候选 `~/.grok/bin/grok`（mac 二进制一般无 `.exe` 后缀，未确认，先 `test -f` 再用）
 
 ### 本技能深度文档化的四家
 
@@ -53,17 +87,19 @@ Agent CLIs 通常由桌面版 / native installer 部署——短名可能完全�
 
 ### 初始化协议（首次使用本技能时）
 
-**Layer 1 — 免费、必跑**（按 §1 通用发现手段 逐家探活 + 按 §1 默认模型怎么查 读配置源），把结果汇报给上游 / 用户，如「本机可用 ZCode / Grok，Codex 当前未安装」。只做免费探测：`Test-Path` / 读 `config.json` / `config.toml` / `settings.json` / `--help`——**不发任何真实模型调用**；Grok / Claude 的精确生效模型在免费层拿不到，留给 Layer 2。
+**Layer 1 — 免费、必跑**（按 §1 通用发现手段 逐家探活 + 按 §1 默认模型怎么查 读配置源），把结果汇报给上游 / 用户，如「本机可用 ZCode / Grok，Codex 当前未安装」。只做免费探测（PowerShell 家族 `Test-Path` / `where.exe`，POSIX 家族 `test -f` / `command -v`）+ 读 `config.json` / `config.toml` / `settings.json` / `--help`——**不发任何真实模型调用**；Grok / Claude 的精确生效模型在免费层拿不到，留给 Layer 2。
 
 **Layer 2 — 付费、按需**（首次在一台新机器采用本技能，或 Layer 1 结果疑似错时跑）：对探活命中的每家发**一次**最小调用——抄对应自检清单的**单条**命令（§12 第 3 项 / §14.10 第 2 项 / §15.7 第 3 项 / §16.10 第 3 项），不要整节照跑（整节含多轮真实调用）。**Claude Code 的最小调用是四家里最贵的，验证时约 $0.14**；其余几乎免费。
 
 ### 调用方注意
 
-- Agent CLIs 短名不可靠：桌面版 / native installer 部署的 CLI 可能不在 PATH、可能指向过期副本、可能被多个已装版本互相覆盖。脚本里一律按 §1 探活用 `Test-Path` / `where.exe` / 读 `~/.codex/config.toml` 拿全路径，不依赖 `codex` / `zcode` / `grok` / `claude` 等短名。
+- Agent CLIs 短名不可靠：桌面版 / native installer 部署的 CLI 可能不在 PATH、可能指向过期副本、可能被多个已装版本互相覆盖。脚本里一律按 §1 探活拿全路径，不依赖 `codex` / `zcode` / `grok` / `claude` 等短名。按家族选择：
+  - PowerShell 家族：`Test-Path` / `where.exe` / 读 `~/.codex/config.toml`；
+  - POSIX 家族（Git Bash / Linux / macOS / WSL，按 §1 OS → 家族选择 抄对应实现）：`test -f` / `command -v` / 读 `~/.codex/config.toml`。
 - 桌面升级会更换 Codex 的哈希子目录，旧目录会在 `bin\` 下残留且失效；`bin\` 根也可能残留旧副本。当前有效入口一律以 `~/.codex/config.toml` 的 `CODEX_CLI_PATH` 指向为准（取法见 §2.3 / §15.1），不要依赖任何散落在 `bin\` 下的 `codex.exe`。
 - Codex 的 `approval_policy` 由 `~/.codex/config.toml` 决定，看你自己的 config；review 类任务**必须**显式 `--sandbox read-only`，与 `approval_policy` 无关。不要给 `exec` 传 `--ask-for-approval`（clap 直接 exit 2）。
 - 不要对 Codex 加 `--ignore-user-config` 去打 `api.openai.com`：若 `auth.json` 持 `sk-cp-...`（ChatGPT plan 风格）key 会 401（exit 1）。实际 auth 状态用 `codex login status` 查。
-- 路径落在 WindowsApps 下的 Store 包（如 ChatGPT Codex 桌面版）会被 Store ACL 拒绝（Access is denied），不要 spawn。
+- 路径落在 WindowsApps 下的 Store 包（如 ChatGPT Codex 桌面版）会被 Store ACL 拒绝（Access is denied），不要 spawn。`[Windows 特有]`
 
 ## 2. 给其他 agent 的推荐调用
 
@@ -72,9 +108,25 @@ Agent CLIs 通常由桌面版 / native installer 部署——短名可能完全�
 1. 复杂要求写成工作目录里的 `review_task.md`，命令行只留一句短指令（两跳；ZCode 细述见 §5.2）。ZCode / Grok 用 `--cwd`，Codex 用 `-C`，Claude Code 没有 `--cwd` flag（走 spawnSync 的 `cwd` 选项）。
 2. 只读 review，禁止改文件。修复类等**要改文件**的任务走 Codex `--sandbox workspace-write`，模板与坑见 §2.5。
 3. 程序化调用分管道 stdout/stderr，调大 maxBuffer，超时 15–20 分钟（修复类任务更长，实测 ~35 分钟，见 §2.5）。
-4. 两跳的任务文件含中文时，**用 UTF-8 带 BOM 保存，或干脆写英文**：Codex 用它的 shell 工具读 UTF-8 无 BOM 中文文件会按 GBK 解码成乱码，带着乱码执行必然跑偏（实测坑，详见 §15.2）。
+4. 两跳的任务文件含中文时，**用 UTF-8 带 BOM 保存，或干脆写英文**：Codex 用它的 shell 工具读 UTF-8 无 BOM 中文文件会按 GBK 解码成乱码，带着乱码执行必然跑偏（实测坑，详见 §15.2）。`[Windows 特有]`（POSIX 默认 UTF-8 基本不踩；§15.2 已有细节）
 
 PowerShell 抄 §2.1–§2.3 / §2.6 这四条（修复类任务用 §2.5）。
+
+### Shell 家族翻译对照
+
+最小对照表，PowerShell ↔ POSIX 同构；其余细节按 §1 的家族实现抄对应版本。
+
+| PowerShell | POSIX (bash / zsh) | 说明 |
+|---|---|---|
+| `& $var args` | `"$var" args` | 直接调用；PowerShell 用 `&`、POSIX 直接 `"$var"` |
+| `$env:TEMP` | `${TMPDIR:-/tmp}` | 临时目录变量；Git Bash 通常已有 `$TEMP` / `$TMP`，macOS / Linux 看 `$TMPDIR`；POSIX `mktemp -d` 更稳 |
+| `` ` ``（反引号续行） | `\`（反斜杠续行） | 行继续符 |
+| `Test-Path <p>` | `test -f <p>` | 文件存在性 |
+| `Select-String -Pattern` | `grep -E` / `grep -oP`（GNU） | 文本匹配；`grep -oP` 是 GNU 扩展 |
+| `"s" \| cmd` | `echo "s" \| cmd` | **管道字符串语法不互通**——PS 的字符串管道在 bash 无效，反之亦然 |
+| `$OutputEncoding = [System.Text.Encoding]::UTF8` | 默认 UTF-8 | PS 5.1 必须显式设；POSIX 默认 UTF-8，无此问题 |
+
+Shell 家族在 §1 的发现手段与 §2.1–§2.3 / §2.5 / §2.6 各小节内均按「PowerShell:」/「POSIX（bash / zsh）:」分别给出，调用方按当前主机的 shell 家族直接抄对应代码块即可。
 
 ### 2.1 ZCode（只读 review）
 
@@ -84,6 +136,18 @@ node "$env:LOCALAPPDATA\Programs\ZCode\resources\glm\zcode.cjs" `
   --cwd "E:/你的项目" `
   --json `
   --mode plan `
+  --disallowed-tools "Edit Write Bash"
+# stdout 是单个 JSON：.response = 最终回答，.sessionId 给 --resume
+```
+
+POSIX（bash / zsh，Git Bash on Windows 实测）：
+
+```bash
+node "$LOCALAPPDATA/Programs/ZCode/resources/glm/zcode.cjs" \
+  --prompt "阅读 ./review_task.md 并严格执行其中的任务" \
+  --cwd "E:/你的项目" \
+  --json \
+  --mode plan \
   --disallowed-tools "Edit Write Bash"
 # stdout 是单个 JSON：.response = 最终回答，.sessionId 给 --resume
 ```
@@ -101,9 +165,23 @@ node "$env:LOCALAPPDATA\Programs\ZCode\resources\glm\zcode.cjs" `
 # stdout 是单个 JSON：.text = 最终回答，.sessionId 给 -r。不要 2>&1
 ```
 
+POSIX（bash / zsh，Git Bash on Windows 实测）：
+
+```bash
+"$USERPROFILE/.grok/bin/grok.exe" \
+  -p "阅读 ./review_task.md 并严格执行其中的任务" \
+  --cwd "E:/你的项目" \
+  --output-format json \
+  --always-approve \
+  --permission-mode plan \
+  --disallowed-tools "Edit,Write,run_terminal_cmd"
+# stdout 是单个 JSON：.text = 最终回答，.sessionId 给 -r。不要 2>&1
+# 注意 Git Bash 下 .exe 仍带（Windows 形态）；mac 形态见 §1 macOS 发现链
+```
+
 ### 2.3 Codex（只读 review）
 
-review **必须**显式 `--sandbox read-only`——`~/.codex/config.toml` 的 `sandbox_mode` / `approval_policy` 实际值是什么就是什么（详见 §15.1），显式传参永远比依赖默认值稳。PowerShell 不要把带空格的 prompt 当 `Start-Process -ArgumentList` 元素（会拆词）；走 stdin `-`。
+review **必须**显式 `--sandbox read-only`——`~/.codex/config.toml` 的 `sandbox_mode` / `approval_policy` 实际值是什么就是什么（详见 §15.1），显式传参永远比依赖默认值稳。PowerShell 不要把带空格的 prompt 当 `Start-Process -ArgumentList` 元素（会拆词）；走 stdin `-`。`[Windows 特有]`
 
 ```powershell
 # 哈希目录随桌面升级变化，从 config.toml 动态取当前二进制（已实测一行可用）
@@ -118,6 +196,17 @@ $OutputEncoding = [System.Text.Encoding]::UTF8
 # JSONL 里 {"type":"thread.started","thread_id":"..."} 给续接（- 是 PROMPT 位，结尾不要再多挂一个 -）：
 #   "追问内容" | & $CX exec resume <thread_id> - --skip-git-repo-check --json -c 'sandbox_mode="read-only"' -o last2.txt
 #   （resume 不认 --sandbox/-C/--color，沙箱用 -c 覆盖，详见 §15.3）
+```
+
+POSIX（bash / zsh，Git Bash on Windows 实测）：
+
+```bash
+CX=$(grep -oP "CODEX_CLI_PATH = '\K[^']+" "$USERPROFILE/.codex/config.toml")
+echo "prompt" | "$CX" exec --skip-git-repo-check --color never --json --sandbox read-only \
+  -C "E:/你的项目" -o "$PWD/codex_last.txt" -
+# 最终回答读 codex_last.txt
+# resume 等价一行（resume 不认 --sandbox/-C/--color，详见 §15.3）：
+#   echo "追问内容" | "$CX" exec resume <thread_id> - --skip-git-repo-check --json -o last2.txt
 ```
 
 ### 2.4 四家最小对照
@@ -135,12 +224,24 @@ $OutputEncoding = [System.Text.Encoding]::UTF8
 
 修 bug / 修测试这类**要改文件**的任务，把 `--sandbox` 换成 `workspace-write`，外层超时给足（实战修 13 个测试文件全程 **~35 分钟**，远超只读 review 的 15–20 分钟）：
 
+> ⚠ **沙箱实现按 OS 不同**——Codex 沙箱在 Windows / macOS 是两套机制（`workspace-write` 的可写边界、`--basetemp` 拒写默认 temp 目录这些行为仅在 Windows 实测）；macOS / Linux 上同样传 `--sandbox workspace-write` 不代表行为一致，先用最小可写任务在小分支上验证沙箱边界与 temp 写入策略，再上正式任务。
+
 ```powershell
 $CX = (Select-String -Path "$env:USERPROFILE\.codex\config.toml" -Pattern 'CODEX_CLI_PATH').Line.Split("'")[1]
 $OutputEncoding = [System.Text.Encoding]::UTF8   # PS 5.1 必加（§15.2）；任务文件建议直接写英文
 "Read ./repair_task.md and execute it strictly." |
   & $CX exec --skip-git-repo-check --color never --json --sandbox workspace-write `
     -C "E:/目标仓库" -o "$PWD\codex_last.txt" -
+```
+
+POSIX（bash / zsh，Git Bash on Windows 实测；⚠ 沙箱实现按 OS 不同，见本节上方警示）：
+
+```bash
+CX=$(grep -oP "CODEX_CLI_PATH = '\K[^']+" "$USERPROFILE/.codex/config.toml")
+# macOS BSD grep 无 -P 时用 sed 兜底，见 §1 POSIX 家族实现
+echo "Read ./repair_task.md and execute it strictly." | "$CX" exec \
+  --skip-git-repo-check --color never --json --sandbox workspace-write \
+  -C "E:/目标仓库" -o "$PWD/codex_last.txt" -
 ```
 
 任务文件模板——三条防护约束都是实战踩出来的，别省（模板本身用英文书写，规避 §15.2 的读盘乱码坑）：
@@ -172,7 +273,7 @@ $OutputEncoding = [System.Text.Encoding]::UTF8   # PS 5.1 必加（§15.2）；�
 **调用方必做复核**（两件，缺一不可）：
 
 1. **乱码扫描**：对 diff 全量检查中文是否被写坏。实战靠上面的任务约束 + 事后全量扫描 diff 才确认无乱码——次生风险是 Codex 用 shell 读改含中文注释的源文件，一改就坏。
-2. **调用方环境复跑**：Codex 报的「全绿」必须在**你自己的环境**重跑确认。实战中它在沙箱里自建 venv 装了 pytest-mock，于是把「调用方全局环境缺 pytest-mock 导致的 7 个 fixture `'mocker' not found`」误诊为沙箱 harness 问题、标记无需修复；调用方复跑才抓出来。**它沙箱里的验证结果 ≠ 调用方环境**，依赖 fixture / 环境差异的用例尤其如此。
+2. **调用方环境复跑**：Codex 报的「全绿」必须在**你自己的环境**重跑确认。实战中它在沙箱里自建 venv 装了 pytest-mock，于是把「调用方全局环境缺 pytest-mock 导致的 7 个 fixture `'mocker' not found`」误诊为沙箱 harness 问题、标记无需修复；调用方复跑才抓出来。**它沙箱里的验证结果 ≠ 调用方环境**，依赖 fixture / 环境差异的用例尤其如此。`[跨平台]`（沙箱环境与调用方环境差异是 OS/工具链共性问题，不依赖 shell）
 
 运行期监控与量级 [外部实战]：
 
@@ -194,6 +295,14 @@ Set-Location "E:/你的项目"   # Claude Code 没有 --cwd；shell 用例先切
 # stdout 是单个 JSON：.result = 最终回答，.session_id 给 --resume（两次调用须同目录，§16.7）。
 # ⚠ 实测（2026-09-03）：--disallowed-tools 单写 "Bash" 禁不住终端（Grok 与 Claude Code 均实测翻车），
 #   只读必须靠 --permission-mode plan（§14.4.1 / §16.4）
+```
+
+POSIX（bash / zsh，Git Bash on Windows 实测；mac 上二进制名为 `claude`，无扩展名）：
+
+```bash
+cd "<目标目录>" && claude -p "阅读 ./review_task.md 并严格执行其中的任务" \
+  --output-format json --permission-mode plan --disallowed-tools "Edit,Write,Bash"
+# stdout 是单个 JSON：.result = 最终回答；.session_id 续接须同目录（§16.7）
 ```
 
 下面是各 CLI 手册。调用方不需要也可以不往下读。
@@ -335,7 +444,7 @@ node "$LOCALAPPDATA/Programs/ZCode/resources/glm/zcode.cjs" \
 任务说明一长（多行、编号要求、中文、代码片段），直接塞进 `--prompt` 就是自找麻烦：
 
 - **转义地狱**：引号、换行、反引号、`$` 在 cmd / PowerShell / Git Bash 三套 shell 里转义规则各不相同，跨 shell 复用时几乎必错；
-- **长度限制**：Windows 命令行有硬上限（cmd.exe 约 8KB，CreateProcess 约 32KB），复杂 review 要求很容易超；
+- **长度限制**：`[Windows 特有]` Windows 命令行有硬上限（cmd.exe 约 8KB，CreateProcess 约 32KB），复杂 review 要求很容易超；
 - **不可复用**：每次调用都要重新拼一遍长字符串，而调用方（上游 agent）生成一个文件要简单可靠得多。
 
 **推荐模式**：详细要求写成任务文件，命令行只留一句短指令，让 zcode 在 `--cwd` 里自己读：
@@ -525,8 +634,8 @@ node "$ZC" --resume sess_xxx --prompt "第 2 节 #5 具体错在第几行？给�
 5. headless 默认 `yolo` 模式会自动批准工具调用，无人值守场景务必用 `--disallowed-tools` 收窄权限（或 `--mode plan` 之类更保守的模式）。
 6. **`--attach` 大文件会拖死任务** [外部实测]：72KB 附件 8 分钟超时无输出。大文档一律 `--cwd` 自读（§5.1）。
 7. **BigModel API 长任务偶发 hang** [外部实测]：部分大 prompt 会卡超过 10 分钟。对策：拆任务、在 prompt 末尾加"仅回复，不要写完整分析"压缩输出、超时给足但不超过 20 分钟（§13.2 / §13.5）。
-8. **Node spawnSync 默认 maxBuffer 约 1MB** [已实测：600KB 通过、2MB 报 ENOBUFS 截断]：大报告场景必须显式调大，否则静默截断（§13.3）。
-9. **长 prompt 直接写在命令行上必踩转义坑**：引号/换行/中文在 cmd、PowerShell、Git Bash 三套 shell 里转义规则不同，且 Windows 命令行有长度硬上限（cmd.exe 约 8KB）。复杂要求一律按 §5.2 写任务文件，prompt 只留一句短指令。
+8. **Node spawnSync 默认 maxBuffer 约 1MB** [已实测：600KB 通过、2MB 报 ENOBUFS 截断]：大报告场景必须显式调大，否则静默截断（§13.3）。`[跨平台]`
+9. **长 prompt 直接写在命令行上必踩转义坑**：`[Windows 特有]` 引号/换行/中文在 cmd、PowerShell、Git Bash 三套 shell 里转义规则不同，且 Windows 命令行有长度硬上限（cmd.exe 约 8KB）。复杂要求一律按 §5.2 写任务文件，prompt 只留一句短指令。
 
 ## 12. 快速自检清单（供验证 agent 复现）
 
@@ -613,7 +722,7 @@ Node v24 默认 maxBuffer **约 1MB** [已实测：600KB 正常、2MB 报 `ENOBU
 const { spawnSync } = require("child_process");
 const path = require("path");
 
-const ZCODE = path.join(process.env.LOCALAPPDATA, "Programs", "ZCode", "resources", "glm", "zcode.cjs");
+const ZCODE = path.join(process.env.LOCALAPPDATA || path.join(require("os").homedir(), "AppData", "Local"), "Programs", "ZCode", "resources", "glm", "zcode.cjs");
 
 const result = spawnSync("node", [
   ZCODE,
@@ -730,7 +839,7 @@ grok --single "你的任务描述" [...]
 | `--output-format <FMT>` | `plain`（默认）/ `json` / `streaming-json` / `streaming-messages-json` | 真实运行 |
 | `--always-approve` | 自动批准工具调用（无人值守脚本必加） | 真实运行 |
 | `--permission-mode <MODE>` | `default` / `acceptEdits` / `auto` / `dontAsk` / `bypassPermissions` / `plan` | 真实运行（help 列出 6 值） |
-| `--disallowed-tools <list>` | 逗号分隔，移除工具；支持 `Agent(type)` 阻断 subagent | 真实运行（flag 接受 `Edit,Write,Bash` / `run_terminal_cmd`）。⚠ 2026-09-03 实测：只写 `Bash` **禁不住**终端工具（echo 命令照跑）；写 `run_terminal_cmd` 能移除主 shell，但模型自述仍可走兜底 command runner——**只读场景不要单靠工具名黑名单，必须配合 `--permission-mode plan`**（§2.2 即此写法） |
+| `--disallowed-tools <list>` | 逗号分隔，移除工具；支持 `Agent(type)` 阻断 subagent | 真实运行（flag 接受 `Edit,Write,Bash` / `run_terminal_cmd`）。⚠ 2026-09-03 实测：只写 `Bash` **禁不住**终端工具（echo 命令照跑）；写 `run_terminal_cmd` 能移除主 shell，但模型自述仍可走兜底 command runner——**只读场景不要单靠工具名黑名单，必须配合 `--permission-mode plan`**（§2.2 即此写法）。`[跨平台]`（Grok 与 Claude Code 同坑，OS/shell 不相关） |
 | `--tools <list>` | 逗号分隔 allowlist；同时设了 `--disallowed-tools` 时后者再扣 | 仅帮助文档 |
 | `--max-turns <N>` | 限制 agentic turn 数 | 仅帮助文档 |
 | `-m, --model <MODEL>` | 模型 ID，例 `grok-4.6-build`；不传走默认 | 仅帮助文档 |
@@ -836,8 +945,10 @@ Error: --effort/--reasoning-effort: unknown effort level 'xxx'; use one of: xhig
 ```javascript
 const { spawnSync } = require("child_process");
 const path = require("path");
+const os = require("os");
 
-const GROK = path.join(process.env.USERPROFILE, ".grok", "bin", "grok.exe");
+// Windows 形态：~/.grok/bin/grok.exe；mac 形态（按 §1 macOS 发现链，未确认）去掉扩展名
+const GROK = path.join(os.homedir(), ".grok", "bin", process.platform === "win32" ? "grok.exe" : "grok");
 
 const result = spawnSync(GROK, [
   "-p", "阅读 ./review_task.md 并严格执行其中的任务",  // §5.2 两跳模式，prompt 保持短指令
@@ -924,8 +1035,8 @@ Select-String -Path "$env:USERPROFILE\.codex\config.toml" -Pattern 'CODEX_CLI_PA
 
 > ⚠ **中文编码坑有两层，是两个不同的失败面，对策不同**：
 >
-> 1. **stdin 层：PS 5.1 管道喂中文变 `???`** [已实测]：PS 5.1 的 `$OutputEncoding` 默认 ASCII，`"中文prompt" | & $CX exec ... -` 到模型端全是问号（模型会直说"我只能看到问号"）；pwsh 7 与 Git Bash 均正常。PS 5.1 里先 `$OutputEncoding = [System.Text.Encoding]::UTF8` 再管道；读 `-o` 输出文件时配 `Get-Content -Encoding UTF8`。
-> 2. **读盘层：Codex 的 shell 工具读 UTF-8 无 BOM 中文文件按 GBK 解码成乱码** [外部实战，2026-09-03]：stdin 环节完全正常（它正确理解短指令并去读任务文件），坏在 Codex 自己 spawn 的 pwsh（实测环境 7.6.5）用 `Get-Content` 读盘：`任务：修复` → `浠诲姟锛氫慨澶`（典型 UTF-8 字节按 GBK 解码）。它带着乱码任务继续执行必然跑偏，只能终止重派。pwsh 文档口径是默认 utf8NoBOM、实测不符（可能受本机 profile / 控制台代码页影响，机制未深挖）。**对策：两跳的任务文件用英文（ASCII）书写，或存成 UTF-8 带 BOM**；修复类任务文件加编码防护约束并让调用方事后扫 diff（模板见 §2.5）。
+> 1. **stdin 层：PS 5.1 管道喂中文变 `???`** [已实测]：PS 5.1 的 `$OutputEncoding` 默认 ASCII，`"中文prompt" | & $CX exec ... -` 到模型端全是问号（模型会直说"我只能看到问号"）；pwsh 7 与 Git Bash 均正常。PS 5.1 里先 `$OutputEncoding = [System.Text.Encoding]::UTF8` 再管道；读 `-o` 输出文件时配 `Get-Content -Encoding UTF8`。`[Windows 特有]`
+> 2. **读盘层：Codex 的 shell 工具读 UTF-8 无 BOM 中文文件按 GBK 解码成乱码** [外部实战，2026-09-03]：stdin 环节完全正常（它正确理解短指令并去读任务文件），坏在 Codex 自己 spawn 的 pwsh（实测环境 7.6.5）用 `Get-Content` 读盘：`任务：修复` → `浠诲姟锛氫慨澶`（典型 UTF-8 字节按 GBK 解码）。它带着乱码任务继续执行必然跑偏，只能终止重派。pwsh 文档口径是默认 utf8NoBOM、实测不符（可能受本机 profile / 控制台代码页影响，机制未深挖）。**对策：两跳的任务文件用英文（ASCII）书写，或存成 UTF-8 带 BOM**；修复类任务文件加编码防护约束并让调用方事后扫 diff（模板见 §2.5）。`[Windows 特有]`（GBK 读盘乱码 + Codex shell 工具默认用 Windows 形态 pwsh；POSIX 默认 UTF-8 环境基本不踩此坑）
 >    一键复现：`echo '读取 x.md 并原样引用第一行' | & $CX exec --skip-git-repo-check --json --sandbox read-only -C <目录> -`，x.md 为 UTF-8 无 BOM 中文文件，观察 JSONL 里 command_execution 的 aggregated_output 是否乱码。
 
 ```powershell
@@ -964,7 +1075,7 @@ $CX = (Select-String -Path "$env:USERPROFILE\.codex\config.toml" -Pattern 'CODEX
 | `-C, --cd <DIR>` | 工作根 | 真实运行 |
 | `--json` | stdout 打 JSONL 事件 | 真实运行 |
 | `-o, --output-last-message <FILE>` | 最终回答写文件 | 真实运行 |
-| `-s, --sandbox <MODE>` | `read-only` / `workspace-write` / `danger-full-access`。**`-s` 不是 session**；`workspace-write` 修复类任务的坑（venv 漂移 / pytest `--basetemp`）见 §2.5 | 真实运行 |
+| `-s, --sandbox <MODE>` | `read-only` / `workspace-write` / `danger-full-access`。**`-s` 不是 session**；`workspace-write` 修复类任务的坑（venv 漂移 / pytest `--basetemp`）见 §2.5。`[跨平台]` 沙箱实现按 OS 不同（Windows / macOS 两套机制），`workspace-write` 的可写边界与 temp 拒写行为仅在 Windows 实测；macOS / Linux 先用最小任务验证再上正式任务 | 真实运行 |
 | `-m, --model <MODEL>` | 覆盖默认模型（值由 §1 默认模型怎么查 / §15.1 决定；当前章节唯一保留的 `-m MiniMax-M3` 例子见上文「显式钉死模型」） | 真实运行 |
 | `--ephemeral` | 不落 session 文件 | 真实运行 |
 | `--skip-git-repo-check` | 允许非 git 目录 | 真实运行 |
@@ -997,7 +1108,7 @@ $CX = (Select-String -Path "$env:USERPROFILE\.codex\config.toml" -Pattern 'CODEX
 
 ### 15.5 与 ZCode / Grok 的差异
 
-见 §2.4。额外：Codex 没有 `--attach`、没有 `--disallowed-tools`；大文档同样 `-C` 自读（沿用 §5.1）。PowerShell 长 prompt 必须 stdin，`Start-Process -ArgumentList` 会把 `Reply with only...` 拆成多个 argv。
+见 §2.4。额外：Codex 没有 `--attach`、没有 `--disallowed-tools`；大文档同样 `-C` 自读（沿用 §5.1）。PowerShell 长 prompt 必须 stdin，`Start-Process -ArgumentList` 会把 `Reply with only...` 拆成多个 argv。`[Windows 特有]`
 
 ### 15.6 最小 spawnSync 范例（Node）
 
@@ -1005,9 +1116,10 @@ $CX = (Select-String -Path "$env:USERPROFILE\.codex\config.toml" -Pattern 'CODEX
 const { spawnSync } = require("child_process");
 const fs = require("fs");
 const path = require("path");
+const os = require("os");
 
 // 哈希目录随桌面升级变化，从 config.toml 动态取（发现方法见 §15.1），不要写死哈希
-const CX = fs.readFileSync(path.join(process.env.USERPROFILE, ".codex", "config.toml"), "utf8")
+const CX = fs.readFileSync(path.join(os.homedir(), ".codex", "config.toml"), "utf8")
   .match(/CODEX_CLI_PATH\s*=\s*'([^']+)'/)[1];
 const last = path.join(process.cwd(), "codex_last.txt");
 
@@ -1127,7 +1239,7 @@ Set-Location "$env:TEMP"
 | `--effort <LEVEL>` | 推理强度，实测可接受 `low, medium, high, xhigh, max`（与 Grok 同名同语义） | 仅帮助文档 |
 | `--permission-mode <MODE>` | `acceptEdits` / `auto` / `bypassPermissions` / `manual` / `dontAsk` / `plan` | 已实测（plan ~7.3s 回 READ_ONLY_OK，exit 0） |
 | `--allowed-tools` / `--allowedTools <list>` | 逗号或空格分隔的允许工具列表 | 仅帮助文档 |
-| `--disallowed-tools` / `--disallowedTools <list>` | 逗号或空格分隔的禁用工具列表 | 已实测（flag 接受 `Edit,Write,Bash`）。⚠ 2026-09-03 实测：`bypassPermissions` 下禁 `"Edit,Write,Bash"` **未拦住**终端命令（echo 照跑，`permission_denials` 为空）——只读必须靠 `--permission-mode plan`，别单靠工具黑名单（与 Grok §14.4.1 同教训） |
+| `--disallowed-tools` / `--disallowedTools <list>` `[跨平台]` | 逗号或空格分隔的禁用工具列表 | 已实测（flag 接受 `Edit,Write,Bash`）。⚠ 2026-09-03 实测：`bypassPermissions` 下禁 `"Edit,Write,Bash"` **未拦住**终端命令（echo 照跑，`permission_denials` 为空）——只读必须靠 `--permission-mode plan`，别单靠工具黑名单（与 Grok §14.4.1 同教训） |
 | `--append-system-prompt <TEXT>` | 追加到默认系统 prompt | 仅帮助文档 |
 | `--system-prompt <TEXT>` | 整段替换默认系统 prompt | 仅帮助文档 |
 | `--session-id <UUID>` | 指定本次 session ID | 仅帮助文档 |
@@ -1203,7 +1315,7 @@ Set-Location "$env:TEMP"
 | 未知 flag / `--resume <id>` 跨目录找不到会话 | `1`（实测：两次调用 cwd 不同时返 `No conversation found with session ID: ...`，同目录则 exit 0，§16.7） |
 | 外层 timeout 强杀 | spawnSync 看 `result.signal` |
 
-### 16.7 续接 session（实测：同目录可用，跨目录找不到）[已实测]
+### 16.7 续接 session（实测：同目录可用，跨目录找不到）`[跨平台]`（cwd 绑定机制是 Claude Code 行为，OS/shell 不相关；与 Grok 同 cwd 才续得上是同源限制）[已实测]
 
 `--resume <id>` 直接用第一次调用 JSON 里的 `session_id`，**但两次调用必须在同一个工作目录**——Claude Code 的会话按目录存储（`~/.claude/projects/<cwd 转写>/`），跨目录 resume 直接报错：
 
@@ -1241,8 +1353,10 @@ $SID = ($J1 | ConvertFrom-Json).session_id
 ```javascript
 const { spawnSync } = require("child_process");
 const path = require("path");
+const os = require("os");
 
-const CLAUDE = path.join(process.env.USERPROFILE, ".local", "bin", "claude.exe");
+// Windows 形态：~/.local/bin/claude.exe；mac 形态（按 §1 macOS 发现链）将扩展名去掉
+const CLAUDE = path.join(os.homedir(), ".local", "bin", process.platform === "win32" ? "claude.exe" : "claude");
 
 const result = spawnSync(CLAUDE, [
   "-p", "阅读 ./review_task.md 并严格执行其中的任务",
