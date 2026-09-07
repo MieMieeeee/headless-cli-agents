@@ -2,7 +2,7 @@
 name: headless-cli-agents
 display-name: ZCode / Grok / Codex / Claude Code 命令行（headless）使用指南
 description: 如何发现本机已安装的 agent CLI，并以无界面（headless）方式调用 ZCode / Grok / Codex / Claude Code，供脚本或其他 agent 做代码审查等任务。先按探活协议确认可用 CLI，再给抄命令模板；后半是各 CLI 的配置、参数、JSON 格式与排错。
-version: 2.3.2
+version: 2.3.3
 author: MieMieeeee
 tags: zcode, grok, codex, claude, CLI, headless, multi-agent, 代码审查, agent协作
 category: 工具使用
@@ -17,6 +17,15 @@ category: 工具使用
 - 适用范围：**知识层**（CLI 行为 / JSON 字段 / exit code / resume 协议 / stopReason 语义 / 恢复姿势）预期跨 OS 与 shell 通用；**环境层**（探活路径 / 安装位置 / 模板 shell 形态）当前验证基准 = Windows（PowerShell）+ Git Bash + macOS 15 (zsh) 实测的 POSIX 子集，其他 shell / Linux 未实测，按 §1 的发现方法与各章自检清单在本机复验。带平台标签的坑（`[Windows 特有]` / `[macOS 特有]` / `[跨平台]`）按标签识别适用面。
 - 验证环境：Windows 11 (win32 10.0.26200 x64)，Node v24.5.0，Git Bash / PowerShell
 - 标注图例：**[已实测]** = 技能方在本机验证通过；**[外部实测]** = 验证 agent 实战数据；**[仅帮助文档]** = 来自 `--help` 输出、未实测；**[实测不可用]** = 当前版本拒绝，勿用
+
+## When to use
+当其他 agent / 脚本需要以 headless 方式调用本机已安装的 ZCode / Grok / Codex / Claude Code 做单次任务 / 代码审查 / 复读 resume 时触发。本技能不引导安装——安装路径随厂商 / 平台差异极大，留给调用方；按 §1 探活确认实际可用的 CLI 后再进入 §2 调用模式。
+
+## Behavior
+按 §1 → §2 → §3–§16 顺序使用本技能。每家 CLI 在 §3–§16 走五段式：探活 → 参数 → JSON 输出 → exit code → 已知坑。强制约束见 `## Constraints (mandatory)` 章节（不要自建 venv / 必带 pytest `--basetemp` 与 `-p no:cacheprovider` / 不改仓库外文件）。
+
+## Output contract
+调用方最终按下方 `## Deliverable` 章节落地 `notes/repair_report.md`，含 **per-file root cause** / **change summary** / **tests still failing** 三段式。任何超出该契约的产物不在本技能范围内。
 
 ## 1. 发现已安装的 CLI agents
 
