@@ -2,7 +2,7 @@
 name: headless-cli-agents
 display-name: ZCode / Grok / Codex / Claude Code 命令行（headless）使用指南
 description: 如何发现本机已安装的 agent CLI，并以无界面（headless）方式调用 ZCode / Grok / Codex / Claude Code，供脚本或其他 agent 做代码审查等任务。先按探活协议确认可用 CLI，再给抄命令模板；后半是各 CLI 的配置、参数、JSON 格式与排错。
-version: 2.3.3
+version: 2.4.0
 author: MieMieeeee
 tags: zcode, grok, codex, claude, CLI, headless, multi-agent, 代码审查, agent协作
 category: 工具使用
@@ -22,10 +22,15 @@ category: 工具使用
 当其他 agent / 脚本需要以 headless 方式调用本机已安装的 ZCode / Grok / Codex / Claude Code 做单次任务 / 代码审查 / 复读 resume 时触发。本技能不引导安装——安装路径随厂商 / 平台差异极大，留给调用方；按 §1 探活确认实际可用的 CLI 后再进入 §2 调用模式。
 
 ## Behavior
-按 §1 → §2 → §3–§16 顺序使用本技能。每家 CLI 在 §3–§16 走五段式：探活 → 参数 → JSON 输出 → exit code → 已知坑。强制约束见 `## Constraints (mandatory)` 章节（不要自建 venv / 必带 pytest `--basetemp` 与 `-p no:cacheprovider` / 不改仓库外文件）。
+按 §1 → §2 → §3–§16 顺序使用本技能。每家 CLI 在 §3–§16 走五段式：探活 → 参数 → JSON 输出 → exit code → 已知坑。Grok 长任务按 §2.2 看 `stopReason`，`cancelled` 走 `-r`，不要新开 `-p`。Codex 修复类的沙箱 / 编码 / pytest 约束写在 §2.4 任务模板里，那是派给 Codex 的任务契约，不是本技能自己的章节。
 
 ## Output contract
-调用方最终按下方 `## Deliverable` 章节落地 `notes/repair_report.md`，含 **per-file root cause** / **change summary** / **tests still failing** 三段式。任何超出该契约的产物不在本技能范围内。
+调用方从 CLI 的 stdout 或 `-o` 文件取结果，本技能不另规定一份自己的报告文件。
+- ZCode：JSON `.response`；`.sessionId` 给 `--resume`
+- Grok：仅当 `stopReason == end_turn` 时取 JSON `.text`；`.sessionId` 给 `-r`（§2.2 / §14.7）
+- Codex：`-o` 文件为最终回答；JSONL `thread.started.thread_id` 给 `exec resume`
+- Claude Code：JSON `.result`；`.session_id` 给 `--resume`（同 cwd）
+失败按 §2 排错速查分流。若 Codex 修复任务要求写入 `notes/repair_report.md`，那是 §2.4 任务模板的 Deliverable，不是本技能的输出契约。
 
 ## 1. 发现已安装的 CLI agents
 
@@ -122,7 +127,7 @@ find ~/.zcode "$HOME/Library/Application Support" -name "zcode*" -type f 2>/dev/
 
 1. 复杂要求写成工作目录里的 `review_task.md`，命令行只留一句短指令（两跳；ZCode 细述见 §5.2）。ZCode / Grok 用 `--cwd`，Codex 用 `-C`，Claude Code 没有 `--cwd` flag（走 spawnSync 的 `cwd` 选项）。
 2. 只读 review，禁止改文件。修复类等**要改文件**的任务走 Codex `--sandbox workspace-write`，模板与坑见 §2.4。
-3. 程序化调用分管道 stdout/stderr，调大 maxBuffer，超时 15–20 分钟（修复类任务更长，实测 ~35 分钟，见 §2.4）。
+3. 程序化调用分管道 stdout/stderr，调大 maxBuffer，超时 15–20 分钟（修复类任务更长，实测 ~35 分钟，见 §2.4）。Grok / ZCode 的 json 模式在进程退出前 stdout 为空，空等不是卡死（Grok 见 §2.2，ZCode 见 §13.1）。
 4. 两跳的任务文件含中文时，**用 UTF-8 带 BOM 保存，或干脆写英文**：Codex 用它的 shell 工具读 UTF-8 无 BOM 中文文件会按 GBK 解码成乱码，带着乱码执行必然跑偏（实测坑，详见 §15.2）。`[Windows 特有]`（POSIX 默认 UTF-8 基本不踩；§15.2 已有细节）
 5. 若用 Node.js (spawnSync) 驱动，**必须**显式设 `maxBuffer ≥ 64MB`——默认约 1MB 会**静默截断**大报告（详见 §13.3）。
 6. 纯审查任务**必须**依赖各家 plan / read-only 权限模式（`--mode plan` / `--permission-mode plan` / `--sandbox read-only`）；`--disallowed-tools` 工具黑名单仅作辅助——实测 Grok --disallowed-tools 只写 `Bash` 拦不住（echo 照跑，§14.4.1）；Claude Code 禁 `"Edit,Write,Bash"` 组合（bypassPermissions 下）也拦不住（§16.4）。
@@ -136,7 +141,7 @@ PowerShell 抄 §2.1 / §2.2 / §2.3 / §2.5 这四条（先看 §2 四家最小
 |---|---|---|---|---|
 | 工作目录 | `--cwd` | `--cwd` | `-C` / `--cd` | spawnSync 的 `cwd` 选项（无 `--cwd` flag） |
 | JSON | 单个对象 `response` | 单个对象 `text`（stderr 有 WARN） | **JSONL** + `-o` 文件 | 单个对象 `result` |
-| 只读 | `--mode plan` + `--disallowed-tools "Edit Write Bash"` | `--permission-mode plan` + `--disallowed-tools "Edit,Write,..."`（逗号） | `--sandbox read-only`（无 disallowed-tools） | `--permission-mode plan` + `--disallowed-tools "Edit,Write,Bash"` |
+| 只读 | `--mode plan` + `--disallowed-tools "Edit Write Bash"` | `--permission-mode plan`；黑名单用 Grok 工具 ID（`search_replace,write,Agent`）；不要为只读卸 `run_terminal_cmd`（§2.2） | `--sandbox read-only`（无 disallowed-tools） | `--permission-mode plan` + `--disallowed-tools "Edit,Write,Bash"` |
 | 续接 | `--resume sess_xxx` | `-r <sessionId>` | `exec resume <thread_id>` | `--resume <session_id>`（同目录实测可用，§16.7） |
 | 默认模型 | 见 §1 默认模型怎么查 | 见 §1 默认模型怎么查 | 见 §1 默认模型怎么查 | 见 §1 默认模型怎么查 |
 | 无人值守批准 | headless 默认 yolo | **必须** `--always-approve` | 看 `~/.codex/config.toml` 的 `approval_policy` 实际值；不要给 `exec` 传 `--ask-for-approval`（clap 直接 exit 2） | headless `-p` 默认自动批准；只读场景显式 `--permission-mode plan` |
@@ -183,6 +188,17 @@ node "$ZC" --prompt "阅读 ./review_task.md 并严格执行其中的任务" \
 
 ### 2.2 Grok（只读 review）
 
+Grok headless **不是**「一条 `-p` 跑完」。长 review 常在 6–8 轮工具循环后以 `stopReason: cancelled`、**exit 0** 停住，会话已落盘。[已实测 Windows ×5] 同 `sessionId` 再 `-r`、令其直接输出报告，5/5 在 1 轮内 `end_turn`（约 $0.02–0.04）。`cancelled` 时 `.text` 是进度旁白，**不是**交付物。调用方必须看 `stopReason`（分流见 §14.7），**禁止**把 cancelled 当失败再开一条新 `-p`。
+
+`--output-format json` 在进程退出前 stdout 为空；外层超时按统一约定第 3 项给 15–20 分钟，**空等不算卡死**。父进程提前杀 = §14.7 的 SIGTERM 行，拿不到 `sessionId`。
+
+**任务合同必须和工具集一致**（任务要 git、却卸掉 shell 时，模型易空转至 `cancelled`）[外部实测：本仓库 Grok review 的 cancelled JSON `thought` 均在找 shell / git]：
+
+- 只读靠 `--permission-mode plan`，不要靠卸 shell。
+- 任务要求 `git diff` / `git status` 时：**不要**把 `run_terminal_cmd` 放进 `--disallowed-tools`；或调用方先把 diff 写成 `--cwd` 下的文件，任务写「读该文件，不要自己跑 git」——这时才可再禁 `run_terminal_cmd`。
+- 任务文件加一句：某工具不可用则试一次后停止重试，用已读文件继续，报告里声明缺口。
+- Grok 工具 ID [已实测 2026-09-20 grok 1.0.34，streaming-json `available_commands` 对照]：改文件是两个独立工具 `search_replace` **和** `write`（只禁前者仍留 `write`）；子 agent 用 `Agent`（会去掉 `spawn_subagent` 及 scheduler / kill/get subagent）；shell 的黑名单 ID 仍是 `run_terminal_cmd`（列表显示名 `run_terminal_command`，§14.4.1）。`Edit` / `Write` / `Bash` 是 Claude 名；flag 接受未知字符串不报错，必须以工具列表对照，不能只看 exit 0。
+
 ```powershell
 $GRK = "$env:USERPROFILE\.grok\bin\grok.exe"  # §1 探活命中的实际路径
 & $GRK -p "阅读 ./review_task.md 并严格执行其中的任务" `
@@ -190,8 +206,21 @@ $GRK = "$env:USERPROFILE\.grok\bin\grok.exe"  # §1 探活命中的实际路径
   --output-format json `
   --always-approve `
   --permission-mode plan `
-  --disallowed-tools "Edit,Write,run_terminal_cmd"
-# stdout 是单个 JSON：.text = 最终回答，.sessionId 给 -r。不要 2>&1
+  --disallowed-tools "search_replace,write,Agent"
+# stdout 是单个 JSON。先看 .stopReason：end_turn 才取 .text；cancelled 则用 .sessionId 走下面续接。不要 2>&1
+# 材料已预生成、任务禁止跑 git 时，可把 run_terminal_cmd 加进 --disallowed-tools
+```
+
+cancelled 后续接（同一 `--cwd`；prompt 禁止再开工具；黑名单与首轮一致）：
+
+```powershell
+& $GRK -r "<sessionId>" -p "基于已读材料直接输出最终 markdown 报告。禁止再调用任何工具。" `
+  --cwd "E:/你的项目" `
+  --output-format json `
+  --always-approve `
+  --permission-mode plan `
+  --disallowed-tools "search_replace,write,Agent"
+# 再看 .stopReason；仍 cancelled 则按 §14.7，不要换一条新 session
 ```
 
 POSIX（bash / zsh，Git Bash on Windows 实测）：
@@ -203,9 +232,15 @@ GRK="$HOME/.grok/bin/grok"           # §1 探活结果（mac 上无 .exe 后缀
   --output-format json \
   --always-approve \
   --permission-mode plan \
-  --disallowed-tools "Edit,Write,run_terminal_cmd"
-# stdout 是单个 JSON：.text = 最终回答，.sessionId 给 -r。不要 2>&1
+  --disallowed-tools "search_replace,write,Agent"
+# stdout 是单个 JSON。先看 .stopReason：end_turn 才取 .text；cancelled 则 -r 续接。不要 2>&1
 # 注意 Git Bash 下 .exe 仍带（Windows 形态）；mac 形态见 §1 macOS 发现链
+# 材料已预生成、任务禁止跑 git 时，可把 run_terminal_cmd 加进 --disallowed-tools
+
+# cancelled 后续接（黑名单与首轮一致）：
+# "$GRK" -r "<sessionId>" -p "基于已读材料直接输出最终 markdown 报告。禁止再调用任何工具。" \
+#   --cwd "E:/你的项目" --output-format json --always-approve --permission-mode plan \
+#   --disallowed-tools "search_replace,write,Agent"
 ```
 
 ### 2.3 Codex（只读 review）
@@ -327,25 +362,24 @@ cd "<目标目录>" && CL=$(command -v claude || echo "$HOME/.local/bin/claude")
 # stdout 是单个 JSON：.result = 最终回答；.session_id 续接须同目录（§16.7）
 ```
 
-### 降低中断率的调用策略 [策略建议，未验证]
+### 降低中断率的调用策略
 
-- **拆小任务**（唯一有双平台相关性证据的措施：Windows 5 次 cancelled 全在长
-  agentic 任务、mac 500 在稍长任务 5/5 复现、8 秒轻任务零失败 [外部实测 mac]）：调用方预生成
-  diff/材料文件让 Grok 只读不跑；按批次拆 review；报告分段生成。
-- 降 `--reasoning-effort`（high 流更长暴露面更大；review 用 low/medium 常够）。
-- 控制首条 prompt 长度（title 从 user text 生成，长 prompt 或放大辅助调用——
-  假设级）。
+Grok 的 `cancelled` 按 §2.2 处置（主路径，不是附录）。其余：
+
+- **任务与工具集一致 / 预生成材料**（§2.2）：Windows 5 次 cancelled 全在长 agentic，cancelled JSON 的 `thought` 均在找 `git diff` / shell [外部实测]；mac 500 传输失败在稍长任务 5/5、8 秒轻任务零失败 [外部实测 mac]。按批次拆 review、报告分段生成同样有效。
+- 长任务若父进程会因「无输出」杀子进程：改 `--output-format streaming-json` 看 heartbeat（事件形状见 §14.6）；默认 json 仍可用，只要外层不误杀。
+- `--max-turns` 到顶也是 `cancelled`，不能当跑完 [仅帮助文档]；若用作熔断，后面仍走 §2.2 `-r` 出报告。
+- 降 `--reasoning-effort` 至 low/medium（建议；未验证能降 cancelled）。
+- 控制首条 prompt 长度（title 从 user text 生成，长 prompt 或放大辅助调用——假设级）。
 - 错峰（两平台故障均聚于晚间高峰——观察级）。
 - 传输层自查（见 §14.7 传输层提示）。
-
-除拆任务外均为未验证策略，实测数据回来后逐条升级或证伪。
 
 ### 排错速查（四家）
 
 | CLI | 高频信号 | 首要动作 |
 |---|---|---|
 | ZCode | exit 1（未知参数/config 缺失/会话不存在）；SIGTERM（超时） | stderr 首行定方向（§9）；超时拆任务（§13.2） |
-| Grok | exit 0 但 `stopReason != end_turn` 或 0 字节 stdout | 按 §14.7 信号→动作矩阵分流 |
+| Grok | exit 0 但 `stopReason != end_turn` 或 0 字节 stdout | 先走 §2.2 控制环（`cancelled` → `-r`）；分流见 §14.7 |
 | Codex | exit 2（坏 flag）/ exit 1（401、任务失败） | 参数问题 §15.4；修复类 §2.4；`codex login status` 查认证 |
 | Claude | exit 1（`--resume` 跨目录 No conversation found） | 退出码 §16.6；同 cwd §16.7 |
 
@@ -354,7 +388,7 @@ cd "<目标目录>" && CL=$(command -v claude || echo "$HOME/.local/bin/claude")
 | | 语法 | 会话 ID 来源 | 已验证的特殊限制 |
 |---|---|---|---|
 | ZCode | `--resume sess_xxx --prompt` | JSON `.sessionId` | 不存在时报 `Session not found` exit 1 [已实测]；续接 yolo 会话建议显式收窄权限（建议） |
-| Grok | `-r <ID> -p` | JSON `.sessionId` | 暗号续答实测通过；token 7 天过期属认证层，与会话文件关系未测 |
+| Grok | `-r <ID> -p` | JSON `.sessionId` | `cancelled` 后 `-r` 出报告 5/5 [已实测]；暗号续答实测通过；token 7 天过期属认证层，与会话文件关系未测 |
 | Codex | `exec resume <thread_id> -` | JSONL `thread.started.thread_id` | resume 不认 `--sandbox`/`-C`/`--color`，沙箱用 `-c` 覆盖 [已实测] |
 | Claude | `--resume <ID> -p` | JSON `.session_id` | 两次调用须同 cwd [双平台实测]；session 落盘转写规则 §16.7 |
 
@@ -880,7 +914,7 @@ grok --single "你的任务描述" [...]
 }
 ```
 
-程序化取结果先看 `stopReason`：`end_turn` 才是完整结果；`cancelled` 表示服务端中断（退出码仍是 0），恢复姿势见 §14.7 信号→动作矩阵。
+程序化取结果先看 `stopReason`：`end_turn` 才是完整结果；`cancelled` 表示本轮未完成（退出码仍是 0，会话已落盘），`.text` 是进度旁白。恢复姿势见 §2.2 控制环；分流见 §14.7 信号→动作矩阵。官方还列出 `max_tokens` / `max_turn_requests` / `refusal` 等 [仅帮助文档，user-guide 14-headless-mode]。
 
 ### 14.4 参数清单
 
@@ -893,9 +927,9 @@ grok --single "你的任务描述" [...]
 | `--output-format <FMT>` | `plain`（默认）/ `json` / `streaming-json` / `streaming-messages-json` | 真实运行 |
 | `--always-approve` | 自动批准工具调用（无人值守脚本必加） | 真实运行 |
 | `--permission-mode <MODE>` | `default` / `acceptEdits` / `auto` / `dontAsk` / `bypassPermissions` / `plan` | 真实运行（help 列出 6 值） |
-| `--disallowed-tools <list>` | 逗号分隔，移除工具；支持 `Agent(type)` 阻断 subagent | 真实运行（flag 接受 `Edit,Write,Bash` / `run_terminal_cmd`）。⚠ 2026-09-03 实测：只写 `Bash` **禁不住**终端工具（echo 命令照跑）；写 `run_terminal_cmd` 能移除主 shell，但模型自述仍可走兜底 command runner——**只读场景不要单靠工具名黑名单，必须配合 `--permission-mode plan`**（§2.2 即此写法）。`[跨平台]`（Grok 与 Claude Code 同坑，OS/shell 不相关） |
+| `--disallowed-tools <list>` | 逗号分隔，移除工具；支持 `Agent(type)` 阻断 subagent | 真实运行。⚠ 2026-09-03：只写 `Bash` **禁不住**终端（echo 照跑）；写 `run_terminal_cmd` 能移除主 shell，但模型自述仍可走兜底 command runner——**只读靠 `--permission-mode plan`，不要单靠黑名单**（§2.2）。[已实测 2026-09-20 grok 1.0.34] streaming-json `available_commands` 对照：禁 `search_replace,Agent` 会去掉 `search_replace` 与 `spawn_subagent`（及 scheduler / kill/get subagent）；默认集另有独立 `write`，只禁 `search_replace` **留得住写文件**，故 §2.2 模板写 `search_replace,write,Agent`。flag 接受未知字符串不报错，必须以工具列表对照。任务需要 `git diff` 时不要卸 `run_terminal_cmd`，否则易空转至 `cancelled`（§2.2）。`[跨平台]` |
 | `--tools <list>` | 逗号分隔 allowlist；同时设了 `--disallowed-tools` 时后者再扣 | 仅帮助文档 |
-| `--max-turns <N>` | 限制 agentic turn 数 | 仅帮助文档 |
+| `--max-turns <N>` | 限制 agentic turn 数 | 仅帮助文档。到顶表现为 `stopReason: cancelled`，不能当跑完；若用作熔断，后面仍走 §2.2 `-r` |
 | `-m, --model <MODEL>` | 模型 ID，例 `grok-4.6-build`；不传走默认 | 仅帮助文档 |
 | `--reasoning-effort <LEVEL>` / `--effort` | 推理强度（**实测只接受 `low|medium|high|xhigh`**，见 §14.4.2） | 真实运行 |
 | `-r, --resume <ID>` | 按 sessionId 续接；可省略 ID 取当前目录最近 | 真实运行（2026-09-03 实测：暗号续答正确，见 §14.10 第 6 项） |
@@ -972,7 +1006,7 @@ Error: --effort/--reasoning-effort: unknown effort level 'xxx'; use one of: xhig
 | 成功 | `0` |
 | 未知 flag / `--reasoning-effort none` / cwd 不存在 / 模型错 | `1` |
 | OIDC token 过期未带 API key | `1`（stderr 给 reauth 提示） |
-| **服务端中断（`stopReason: cancelled`）** | **也是 `0`**——见下方信号→动作矩阵 |
+| **本轮未完成（`stopReason: cancelled`）** | **也是 `0`**——会话已落盘，见下方信号→动作矩阵 / §2.2 |
 | API 5xx（容量 / 高负载） | `1`（stderr 有 `API error (status 500...)`，可等 1–2 分钟重试；传输失败型为 exit 0 + 0 字节，见下方矩阵） |
 | 外层 timeout 强杀 | 跟随 shell（signal-based），spawnSync 拿 `result.signal` |
 
@@ -981,7 +1015,7 @@ Error: --effort/--reasoning-effort: unknown effort level 'xxx'; use one of: xhig
 | 信号（stdout/stderr/exit） | 判定 | 动作 |
 |---|---|---|
 | JSON 在，`stopReason: end_turn` | 成功 | 取 `text` |
-| JSON 在，`stopReason: cancelled`，exit 0 | 服务端中断（长 agentic 任务高发）[已实测 Windows ×5] | `-r <sessionId>` 续接让它直接输出报告（5/5 恢复，~$0.02–0.04/次） |
+| JSON 在，`stopReason: cancelled`，exit 0 | 本轮未完成，会话已落盘（长 agentic / 工具空转高发）[已实测 Windows ×5] | 按 §2.2：`-r <sessionId>` 直接出报告（5/5，~$0.02–0.04/次）；`.text` 是进度旁白，不当交付物；**禁止**再开一条新 `-p` |
 | stdout **0 字节**，exit 0，无 stopReason，stderr 有 `WARN session title generation failed ... API error (status 500) ... Transport error` | 500 传输失败型（稍长任务易触发）[外部实测 mac ×5/5] | **`-r` 无效（没有 sessionId）**——sleep 5–10s 后**不带 `-r`** 重试同一 prompt，退避 1–2s 递增，上限 2–3 次 |
 | exit 1，stdout 是 error JSON（500 at capacity） | 容量型 [已实测 Windows] | 等 1–2 分钟重试同命令 |
 | exit 143 / signal=SIGTERM，stdout 0 字节 | **调用方自己的超时**，不是服务端问题 | 加大 timeout / 拆任务（§13.2），勿赖服务端 |
@@ -992,6 +1026,7 @@ Error: --effort/--reasoning-effort: unknown effort level 'xxx'; use one of: xhig
 - **传输层提示** [外部实测 mac，观察级]：`reqwest ... Transport error` 可能来自
   CLI 的 HTTP 栈，也可能来自拦截出网的本地代理（该机观测到每次经 ClashX
   localhost:7890）；用代理的机器先查代理侧日志/直连 `api.x.ai` 再下结论。
+- **`cancelled` 细分** [仅帮助文档，user-guide 10-hooks]：运行时 `StopCancelled` 的 `reason` 含 `no_progress`（连续空转）、`max_turns`、`user_interrupt`（含父进程 `session/cancel`）、`permission_rejected` 等；headless JSON **不带**该字段，一律表现为 `stopReason: cancelled`。本仓库 review 的 cancelled `thought` 与空转找 git 相符 [外部实测]。与矩阵第三行（0 字节、无 sessionId）不是同一类。
 
 ### 14.8 与 ZCode headless 的关键差异
 
@@ -1002,7 +1037,7 @@ Error: --effort/--reasoning-effort: unknown effort level 'xxx'; use one of: xhig
 | 成本字段 | 无 | `total_cost_usd` |
 | 续接会话 | `--resume sess_xxx` | `-r <sessionId>` 或 `-r` 续最近 |
 | 强制只读模式 | `--mode plan` | `--permission-mode plan` |
-| 工具 disable | `--disallowed-tools "Edit Write"`（空格） | `--disallowed-tools "Edit,Write"`（**逗号分隔**） |
+| 工具 disable | `--disallowed-tools "Edit Write"`（空格） | `--disallowed-tools "search_replace,write,Agent"`（**逗号**；ID 见 §2.2 / §14.4.1） |
 | 自读大文件 | `--cwd + Read`（§5.1 推荐） | `--cwd + read_file`（一致；grok 没有 `--attach`） |
 | 权限/工具的关系 | 工具 disable = 直接移除 | 同上；外加 `--allow/--deny glob` 是 gate 不删 |
 | headless 缺省权限 | `yolo`（自动批准） | `default`（会问）—— **脚本必加 `--always-approve`** |
@@ -1016,31 +1051,67 @@ const os = require("os");
 
 // Windows 形态：~/.grok/bin/grok.exe；mac 实测为 ~/.grok/bin/grok（无扩展名），以 §1 探活为准
 const GROK = path.join(os.homedir(), ".grok", "bin", process.platform === "win32" ? "grok.exe" : "grok");
-
-const result = spawnSync(GROK, [
-  "-p", "阅读 ./review_task.md 并严格执行其中的任务",  // §5.2 两跳模式，prompt 保持短指令
-  "--cwd", "E:/你的项目",
-  "--output-format", "json",
-  "--always-approve",                                  // headless 默认会问，脚本必加
-  "--permission-mode", "plan",                         // 只读
-  "--disallowed-tools", "Edit,Write,run_terminal_cmd",
-], {
+const spawnOpts = {
   encoding: "utf8",
   stdio: ["ignore", "pipe", "pipe"],                   // 关键：stderr 单独走，不要 2>&1
   maxBuffer: 64 * 1024 * 1024,
-  timeout: 20 * 60 * 1000,
-});
-// 生产使用：JSON.parse 包 try/catch；失败按 §14.7 信号→动作矩阵 重试
+  timeout: 20 * 60 * 1000,                             // json 结束前 stdout 为空，勿缩短
+};
+const base = [
+  "--cwd", "E:/你的项目",
+  "--output-format", "json",
+  "--always-approve",                                  // headless 默认会问，脚本必加
+  "--permission-mode", "plan",                         // 只读；不要为只读卸 run_terminal_cmd（§2.2）
+  "--disallowed-tools", "search_replace,write,Agent",
+];
+const prompt = "阅读 ./review_task.md 并严格执行其中的任务";
 
-if (result.status === 0) {
-  const parsed = JSON.parse(result.stdout);            // stdout 是干净的 JSON，§14.5
-  console.log(parsed.text);                            // 最终回答（不是 response，命名跟 ZCode 不一样）
-  console.log(parsed.sessionId);                       // 存下来给 -r 续接
-  console.log(parsed.total_cost_usd);                  // 美元成本，ZCode 没有
+function runGrok(args) {
+  return spawnSync(GROK, args, spawnOpts);
+}
+function parseStdout(stdout) {                         // 空串 / 非 JSON 都不当成功（§14.7 第 3 行）
+  if (!stdout || !String(stdout).trim()) return null;
+  try { return JSON.parse(stdout); } catch { return null; }
+}
+
+let result = runGrok(["-p", prompt, ...base]);
+// 失败按 §14.7 信号→动作矩阵分流；不要把 exit 0 当成一定有 JSON
+
+if (result.error) {
+  console.error("spawn failed:", result.error.message); // ENOENT 等
+} else if (result.signal === "SIGTERM") {
+  console.error("外层超时被杀：加大 timeout / 拆任务，无 sessionId 可续（§13.2）");
+} else if (result.signal) {
+  console.error("killed by", result.signal);
 } else if (result.status === 1) {
   console.error("grok error:", result.stderr);
-} else if (result.signal === "SIGTERM") {
-  console.error("外层超时被杀：拆任务 + 收缩输出后重试");
+} else if (result.status === 0) {
+  let parsed = parseStdout(result.stdout);
+  if (!parsed) {
+    // §14.7 第 3 行：exit 0 且无 JSON（含 0 字节）。不能 -r。生产上 sleep 5–10s 再重试同一 prompt，上限 2–3 次
+    result = runGrok(["-p", prompt, ...base]);
+    parsed = parseStdout(result.stdout);
+  }
+  if (parsed && parsed.stopReason === "cancelled" && parsed.sessionId) {
+    result = runGrok([
+      "-r", parsed.sessionId,
+      "-p", "基于已读材料直接输出最终 markdown 报告。禁止再调用任何工具。",
+      ...base,
+    ]);
+    parsed = parseStdout(result.stdout);
+  }
+  if (parsed && parsed.stopReason === "end_turn") {
+    console.log(parsed.text);                          // 最终回答（不是 response，命名跟 ZCode 不一样）
+    console.log(parsed.sessionId);
+    console.log(parsed.total_cost_usd);
+  } else if (parsed) {
+    console.error("stopReason=", parsed.stopReason, "sessionId=", parsed.sessionId);
+    // 仍失败：按 §14.7 矩阵，不要再开一条新 -p
+  } else {
+    console.error("无 JSON，按 §14.7 第 3 行处置；不要 -r");
+  }
+} else {
+  console.error("unexpected status", result.status);
 }
 ```
 
