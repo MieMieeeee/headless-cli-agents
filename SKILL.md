@@ -2,7 +2,7 @@
 name: headless-cli-agents
 display-name: ZCode / Grok / Codex / Claude Code 命令行（headless）使用指南
 description: 如何发现本机已安装的 agent CLI，并以无界面（headless）方式调用 ZCode / Grok / Codex / Claude Code，供脚本或其他 agent 做代码审查等任务。先按探活协议确认可用 CLI，再给抄命令模板；后半是各 CLI 的配置、参数、JSON 格式与排错。
-version: 2.4.0
+version: 2.4.1
 author: MieMieeeee
 tags: zcode, grok, codex, claude, CLI, headless, multi-agent, 代码审查, agent协作
 category: 工具使用
@@ -12,7 +12,7 @@ category: 工具使用
 
 给**其他 agent / 脚本**看的调用手册：先看 §1 有哪些 CLI，再抄 §2 的命令。ZCode / Grok / Codex / Claude Code 的细参数分别在 §3–§13 / §14 / §15 / **§16**。
 
-- 本文 [已实测] 结论验证于 2026-09-03（Windows）/ 2026-09-04（macOS，下行）：zcode 0.16.5 / Grok CLI 1.0.5 / Codex CLI 0.153.0-alpha.5 / Claude Code 2.1.204（Windows 11, build 26200）。本技能**不设版本门槛**；版本不同时结论可能漂移，按 §1 的发现方法与各章自检清单重新验证。各章自检清单里的「期望输出」同样是当日快照，随本机与版本而变，不是合格标准。
+- 本文 [已实测] 结论验证于 2026-09-03（Windows）/ 2026-09-04（macOS，下行）：zcode 0.16.5 / Grok CLI 1.0.5 / Codex CLI 0.153.0-alpha.5 / Claude Code 2.1.204（Windows 11, build 26200）。（2026-09-20 补充：本机 Grok CLI 已升 1.0.34，§2.2 工具 ID 黑名单结论在 1.0.34 局部复验通过。）本技能**不设版本门槛**；版本不同时结论可能漂移，按 §1 的发现方法与各章自检清单重新验证。各章自检清单里的「期望输出」同样是当日快照，随本机与版本而变，不是合格标准。
 - **macOS 15 (arm64, zsh) 于 2026-09-04 实测**：发现链 / POSIX 探活（`$HOME` 形态）/ Claude resume 同目录 / Codex 沙箱边界（`workspace-write` 可写 `/tmp`、越界拒写）。本节同样按快照随机器与版本漂移。
 - 适用范围：**知识层**（CLI 行为 / JSON 字段 / exit code / resume 协议 / stopReason 语义 / 恢复姿势）预期跨 OS 与 shell 通用；**环境层**（探活路径 / 安装位置 / 模板 shell 形态）当前验证基准 = Windows（PowerShell）+ Git Bash + macOS 15 (zsh) 实测的 POSIX 子集，其他 shell / Linux 未实测，按 §1 的发现方法与各章自检清单在本机复验。带平台标签的坑（`[Windows 特有]` / `[macOS 特有]` / `[跨平台]`）按标签识别适用面。
 - 验证环境：Windows 11 (win32 10.0.26200 x64)，Node v24.5.0，Git Bash / PowerShell
@@ -839,7 +839,7 @@ if (result.status === 0) {
 }
 ```
 
-## 14. Grok CLI（xAI）headless 调用 [本节除注明外已实测；Windows 2026-08-25，macOS 观测 2026-09-04 见各标注]
+## 14. Grok CLI（xAI）headless 调用 [本节除注明外已实测；Windows 2026-08-25，macOS 观测 2026-09-04，工具 ID 黑名单 2026-09-20 复验于 grok 1.0.34；见各标注]
 
 xAI 官方 Grok CLI 的 headless 模式与 ZCode 形态接近，但有几个跟 README 不一致的细节，**踩过的标出**。当前版本见 §1 通用发现手段 / §14.10 自检。
 
@@ -1092,13 +1092,20 @@ if (result.error) {
     result = runGrok(["-p", prompt, ...base]);
     parsed = parseStdout(result.stdout);
   }
+  let resumed = false;
   if (parsed && parsed.stopReason === "cancelled" && parsed.sessionId) {
+    const sid = parsed.sessionId;                        // 先存：resume 失败时它仍是重试 -r 的句柄
+    resumed = true;
     result = runGrok([
-      "-r", parsed.sessionId,
+      "-r", sid,
       "-p", "基于已读材料直接输出最终 markdown 报告。禁止再调用任何工具。",
       ...base,
     ]);
-    parsed = parseStdout(result.stdout);
+    parsed = result.status === 1 ? null : parseStdout(result.stdout);
+    if (!parsed) {
+      // resume 失败两型：exit 1 多为容量——等 1–2 分钟重试同一条 -r（§14.7 矩阵 exit 1 行）；无 JSON 同第 3 行。都不开新 -p
+      console.error("resume 未出 JSON（status=" + result.status + ", signal=" + result.signal + "），sessionId=" + sid + " 可重试 -r");
+    }
   }
   if (parsed && parsed.stopReason === "end_turn") {
     console.log(parsed.text);                          // 最终回答（不是 response，命名跟 ZCode 不一样）
@@ -1107,7 +1114,7 @@ if (result.error) {
   } else if (parsed) {
     console.error("stopReason=", parsed.stopReason, "sessionId=", parsed.sessionId);
     // 仍失败：按 §14.7 矩阵，不要再开一条新 -p
-  } else {
+  } else if (!resumed) {
     console.error("无 JSON，按 §14.7 第 3 行处置；不要 -r");
   }
 } else {
