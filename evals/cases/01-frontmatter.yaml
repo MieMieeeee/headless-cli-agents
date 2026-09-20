@@ -1,0 +1,32 @@
+id: frontmatter
+title: SKILL.md must declare a valid YAML frontmatter
+description: |
+  Every Skill declares its identity in a YAML frontmatter. This case
+  catches Skills that ship a free-form Markdown without metadata: those
+  cannot be installed by an Agent and produce confusing failures later.
+
+input:
+  prompt: |
+    Read the SKILL.md at the workspace root and quote back the values
+    of its frontmatter fields: name, version, and description.
+
+expect:
+  file_contains:
+    - path: SKILL.md
+      content: "name:"
+    - path: SKILL.md
+      content: "version:"
+    - path: SKILL.md
+      content: "description:"
+
+judge:
+  type: rule_based
+  success:
+    - output_contains:
+        all: ["name:", "version:", "description:"]
+    - output_matches:
+        all: ['(?m)^name: [a-z][a-z0-9-]+$']
+        not: ['(?m)^name:\s*$']
+    - file_contains:
+        path: SKILL.md
+        contains: "---"

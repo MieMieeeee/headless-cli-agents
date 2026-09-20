@@ -1,0 +1,29 @@
+id: no-internal-leak
+title: SKILL.md must not leak internal paths or credentials
+description: |
+  Skills are shared artifacts. Anything that looks like a local
+  filesystem path, an API key prefix, or a Bearer token in SKILL.md is
+  almost certainly an authoring slip.
+
+input:
+  prompt: |
+    Scan SKILL.md for any of: a path under /home/ or /Users/, a Windows
+    path like C:\Users\, a token prefix like sk- or sk-ant-, or the
+    substring "Bearer ". Report whether any were found.
+
+expect:
+  file_contains:
+    - path: SKILL.md
+      content: "## "
+
+judge:
+  type: rule_based
+  failure:
+    - file_matches:
+        path: SKILL.md
+        any: ['/home/[A-Za-z0-9._-]+/', '/Users/[A-Za-z0-9._-]+/', 'sk-ant-', 'sk-[a-zA-Z0-9]{20,}']
+    - output_matches:
+        any: ['/home/[A-Za-z0-9._-]+/', '[A-Z]:\\\\Users\\\\[A-Za-z0-9._-]+', 'sk-[a-zA-Z0-9]{16,}']
+  success:
+    - output_contains:
+        any: ["none", "no leaks", "clean"]

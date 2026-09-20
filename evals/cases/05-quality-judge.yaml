@@ -1,0 +1,27 @@
+id: quality-judge
+title: An LLM judge verifies the description is unambiguous and triggerable
+description: |
+  Static checks cannot judge whether the description is clear enough
+  for an Agent to know when to invoke the Skill. This case uses
+  agent_judge against a small rubric.
+
+input:
+  prompt: |
+    Read SKILL.md and produce: (a) one sentence stating when the
+    Skill should trigger; (b) one sentence stating what it should
+    NOT do.
+
+expect:
+  must_contain:
+    - "## "
+
+judge:
+  type: agent_judge
+  model: anthropic/claude-sonnet-4-6
+  criteria:
+    - "The SKILL.md description states a clear, narrow trigger that an Agent can pattern-match."
+    - "The description lists at least one thing the Skill does NOT do, to avoid over-triggering."
+    - "The Behavior section gives step-by-step instructions, not vague aspirations."
+    - "The Output contract is concrete (file names, formats, fields), not 'produces a response'."
+  pass_threshold: 0.7
+  timeout_seconds: 60

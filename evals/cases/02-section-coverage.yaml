@@ -1,0 +1,38 @@
+id: section-coverage
+title: SKILL.md must explain when to use the Skill and what it produces
+description: |
+  A Skill without a clear "When to use" / "Behavior" / "Output contract"
+  section cannot be safely auto-invoked by an Agent. This case checks
+  the three required Markdown sections are present.
+
+input:
+  prompt: |
+    Read SKILL.md and list the headings under sections "## When to use",
+    "## Behavior", and "## Output contract" (or their equivalents).
+
+expect:
+  file_contains:
+    - path: SKILL.md
+      content: "## When to use"
+    - path: SKILL.md
+      content: "## Behavior"
+    - path: SKILL.md
+      content: "## Output contract"
+
+judge:
+  type: rule_based
+  success:
+    - file_contains:
+        path: SKILL.md
+        contains: "## When to use"
+    - file_contains:
+        path: SKILL.md
+        contains: "## Behavior"
+    - file_contains:
+        path: SKILL.md
+        contains: "## Output contract"
+  failure:
+    - file_contains:
+        path: SKILL.md
+        contains: "TBD"
+        not: ["##"]

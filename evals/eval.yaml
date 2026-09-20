@@ -1,0 +1,54 @@
+# Master eval.yaml - drop this file into <skill-dir>/evals/eval.yaml to
+# evaluate any Skill against the standard case library in evals/cases/.
+#
+# This file is engine-agnostic. Pick the engine at the call site:
+#   skill-up run evals/eval.yaml --engine codex
+#   skill-up run evals/eval.yaml --engine claude_code
+#   skill-up run evals/eval.yaml --engine qwen_code
+#   skill-up run evals/eval.yaml --engine qodercli
+
+schema_version: v1alpha1
+environment:
+  type: none
+
+engine:
+  name: codex
+  model:
+    provider: openai
+    name: codex
+
+cases:
+  # The canonical eval suite. Every case file in this folder runs.
+  files:
+    - evals/cases/01-frontmatter.yaml
+    - evals/cases/02-section-coverage.yaml
+    - evals/cases/03-no-internal-leak.yaml
+    - evals/cases/04-rule-compatibility.yaml
+    - evals/cases/05-quality-judge.yaml
+
+  # Defaults applied to every case unless the case overrides them.
+  defaults:
+    timeout_seconds: 300
+    max_turns: 12
+    expect:
+      exit_code: 0
+      must_not_contain:
+        - "TODO"
+        - "FIXME"
+        - "I cannot"
+        - "as an AI language model"
+
+  parallelism: 1
+  retry_policy:
+    max_retries: 1
+    retry_on: [timeout, error]
+
+benchmark:
+  # When true, runs every case with_skill AND without_skill, diffing the
+  # pass-rate uplift. Doubles wall time + token cost. Enable ad-hoc with
+  # `--baseline` rather than committing it on.
+  enabled: false
+
+report:
+  formats: [json, junit, html]
+  artifacts: [transcript]

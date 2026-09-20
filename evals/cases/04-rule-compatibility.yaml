@@ -1,0 +1,26 @@
+id: rule-compatibility
+title: SKILL.md must not ship with TODO/FIXME or self-contradicting rules
+description: |
+  A Skill that contains TODO/FIXME is unfinished. A Skill that tells
+  the Agent both "always X" and "never X" is broken. Either breaks
+  downstream auto-invocation.
+
+input:
+  prompt: |
+    Read SKILL.md and report whether it contains any TODO/FIXME/XXX
+    marker or any pair of contradicting directives (e.g. "always X"
+    followed by "never X").
+
+expect:
+  must_not_contain:
+    - "TODO"
+    - "FIXME"
+
+judge:
+  type: rule_based
+  failure:
+    - file_matches:
+        path: SKILL.md
+        any: ['(?i)TODO', '(?i)FIXME', '(?i)XXX']
+    - output_contains:
+        any: ["TODO", "FIXME", "XXX", "contradicts", "inconsistent"]
